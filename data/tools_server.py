@@ -42,8 +42,10 @@ def _jobs_janitor():
             for jid in expired:
                 log = JOBS[jid].get('log')
                 if log and os.path.exists(log):
-                    try: os.unlink(log)
-                    except: pass
+                    try:
+                        os.unlink(log)
+                    except OSError:
+                        pass
                 del JOBS[jid]
 
 threading.Thread(target=_jobs_janitor, daemon=True).start()
@@ -322,14 +324,17 @@ def edit_dotfile():
         env = os.environ.copy()
         env['DISPLAY'] = ':0'
 
-        # Try different terminal emulators
+        # Terminals whose -e takes a single string get a shell-quoted path so
+        # filenames with spaces/special chars open correctly (and can't be
+        # word-split into extra commands).
+        qtarget = shlex.quote(target)
         terminals = [
             ['kitty', '-e', 'nvim', target],
-            ['qterminal', '-e', f'nvim {target}'],
+            ['qterminal', '-e', f'nvim {qtarget}'],
             ['gnome-terminal', '--', 'nvim', target],
-            ['xfce4-terminal', '-e', f'nvim {target}'],
+            ['xfce4-terminal', '-e', f'nvim {qtarget}'],
             ['konsole', '-e', 'nvim', target],
-            ['xterm', '-e', f'nvim {target}'],
+            ['xterm', '-e', f'nvim {qtarget}'],
         ]
 
         for term_cmd in terminals:
@@ -559,14 +564,17 @@ def edit_file():
         env = os.environ.copy()
         env['DISPLAY'] = ':0'
 
-        # Try different terminal emulators
+        # Terminals whose -e takes a single string get a shell-quoted path so
+        # filenames with spaces/special chars open correctly (and can't be
+        # word-split into extra commands).
+        qtarget = shlex.quote(target)
         terminals = [
             ['kitty', '-e', 'nvim', target],
-            ['qterminal', '-e', f'nvim {target}'],
+            ['qterminal', '-e', f'nvim {qtarget}'],
             ['gnome-terminal', '--', 'nvim', target],
-            ['xfce4-terminal', '-e', f'nvim {target}'],
+            ['xfce4-terminal', '-e', f'nvim {qtarget}'],
             ['konsole', '-e', 'nvim', target],
-            ['xterm', '-e', f'nvim {target}'],
+            ['xterm', '-e', f'nvim {qtarget}'],
         ]
 
         for term_cmd in terminals:
@@ -1128,19 +1136,37 @@ def admin_install():
                     yield json.dumps({'line': '[!] No package name specified'}) + '\n'
                     yield json.dumps({'done': True, 'success': False}) + '\n'
                     return
+                if not _SAFE_PKG.match(pkg):
+                    yield json.dumps({'line': f'[!] Invalid package name: {pkg}'}) + '\n'
+                    yield json.dumps({'done': True, 'success': False}) + '\n'
+                    return
                 cmd = ['sudo', '-n', 'portalgun', 'install', 'apt', pkg]
 
             elif install_type == 'github':
                 url = data.get('url', '').strip()
                 os_cat = data.get('os_cat', 'linux')
                 sub_cat = data.get('sub_cat', 'misc')
-                target_dir = f'/opt/tools/{os_cat}/{sub_cat}'
                 run_requirements = data.get('requirements', False)
                 run_script = data.get('run_script', '').strip()
                 if not url:
                     yield json.dumps({'line': '[!] No URL specified'}) + '\n'
                     yield json.dumps({'done': True, 'success': False}) + '\n'
                     return
+                # Validate inputs so a malformed URL/category can't build a
+                # nonsense target path or a non-github clone target.
+                if not _SAFE_URL.match(url):
+                    yield json.dumps({'line': f'[!] Not a valid github URL: {url}'}) + '\n'
+                    yield json.dumps({'done': True, 'success': False}) + '\n'
+                    return
+                if not re.fullmatch(r'[a-z0-9_-]+', os_cat) or not re.fullmatch(r'[a-z0-9_-]+', sub_cat):
+                    yield json.dumps({'line': '[!] Invalid category (use [a-z0-9_-])'}) + '\n'
+                    yield json.dumps({'done': True, 'success': False}) + '\n'
+                    return
+                if run_script and not _SAFE_SCRIPT.match(run_script):
+                    yield json.dumps({'line': f'[!] Invalid run_script: {run_script}'}) + '\n'
+                    yield json.dumps({'done': True, 'success': False}) + '\n'
+                    return
+                target_dir = f'/opt/tools/{os_cat}/{sub_cat}'
                 cmd = ['sudo', '-n', 'portalgun', 'install', 'github', url, target_dir]
 
             elif install_type == 'pip':
@@ -1149,12 +1175,20 @@ def admin_install():
                     yield json.dumps({'line': '[!] No package name specified'}) + '\n'
                     yield json.dumps({'done': True, 'success': False}) + '\n'
                     return
+                if not _SAFE_PKG.match(pkg):
+                    yield json.dumps({'line': f'[!] Invalid package name: {pkg}'}) + '\n'
+                    yield json.dumps({'done': True, 'success': False}) + '\n'
+                    return
                 cmd = ['pip', 'install', '--break-system-packages', pkg]
 
             elif install_type == 'cargo':
                 pkg = data.get('package', '').strip()
                 if not pkg:
                     yield json.dumps({'line': '[!] No package name specified'}) + '\n'
+                    yield json.dumps({'done': True, 'success': False}) + '\n'
+                    return
+                if not _SAFE_PKG.match(pkg):
+                    yield json.dumps({'line': f'[!] Invalid package name: {pkg}'}) + '\n'
                     yield json.dumps({'done': True, 'success': False}) + '\n'
                     return
                 cmd = ['cargo', 'install', pkg]
@@ -1276,16 +1310,27 @@ def job_stop(job_id):
 
 @app.route('/api/admin/job/<job_id>/stream')
 def job_stream(job_id):
-    job = JOBS.get(job_id)
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
     if not job:
         return jsonify({'error': 'job not found'}), 404
 
-    offset = int(request.args.get('offset', 0))
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+    except (TypeError, ValueError):
+        offset = 0
 
     def generate():
         pos = offset
         log_path = job['log']
+        # Wall-clock guard: never let a single stream pin a worker forever if
+        # the job's monitor thread dies and 'done' never flips.
+        deadline = time.time() + 7200
+        missing_tries = 0
         while True:
+            if time.time() > deadline:
+                yield json.dumps({'line': '[!] Stream timed out (still running? reconnect)', 'pos': pos}) + '\n'
+                break
             try:
                 with open(log_path, 'r', errors='replace') as f:
                     f.seek(pos)
@@ -1320,6 +1365,10 @@ def job_stream(job_id):
                         yield json.dumps({'heartbeat': True}) + '\n'
                         time.sleep(1)
             except FileNotFoundError:
+                missing_tries += 1
+                if missing_tries > 120:  # ~60s of the log never appearing
+                    yield json.dumps({'line': '[!] Log file never appeared', 'done': True, 'success': False}) + '\n'
+                    break
                 time.sleep(0.5)
 
     return Response(
