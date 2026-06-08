@@ -1278,6 +1278,23 @@ def admin_install():
                     else:
                         yield json.dumps({'line': f'[!] Script not found: {script_path}'}) + '\n'
 
+            # Feed the offline mirrors so this newly-added tool is installable
+            # offline on the next clone (no full mirror rebuild needed).
+            if install_type in ('pip', 'apt'):
+                ma_pkg = data.get('package', '').strip()
+                if ma_pkg and _SAFE_PKG.match(ma_pkg) and os.path.exists('/usr/local/bin/portalgun'):
+                    yield json.dumps({'line': f'[+] Feeding offline mirror ({install_type})...'}) + '\n'
+                    try:
+                        mp = subprocess.run(
+                            ['sudo', '-n', 'portalgun', 'mirror-add', install_type, ma_pkg],
+                            capture_output=True, text=True, timeout=300
+                        )
+                        for ln in (mp.stdout or '').splitlines():
+                            if ln.strip():
+                                yield json.dumps({'line': ln.rstrip()}) + '\n'
+                    except Exception as me:
+                        yield json.dumps({'line': f'[!] mirror-add skipped: {me}'}) + '\n'
+
             yield json.dumps({'done': True, 'success': True}) + '\n'
 
         except Exception as e:
