@@ -220,6 +220,22 @@ PY
         _row "$WARN_MARK" "pip wheelhouse" "empty — run (online): portalgun build-wheelhouse"
         warn=$((warn + 1))
     fi
+    local apt_mirror_dir="${PORTALGUN_APT_MIRROR:-/opt/portalgun/apt-mirror}"
+    local am_count=0 am_size="0"
+    if [ -d "$apt_mirror_dir/pool" ]; then
+        am_count=$(find "$apt_mirror_dir/pool" -name '*.deb' 2>/dev/null | wc -l)
+        am_size=$(du -sh "$apt_mirror_dir" 2>/dev/null | cut -f1)
+    fi
+    if [ "$am_count" -ge 100 ]; then
+        _row "$PASS_MARK" "apt mirror" "$am_count .debs ($am_size)"
+        pass=$((pass + 1))
+    elif [ "$am_count" -gt 0 ]; then
+        _row "$WARN_MARK" "apt mirror" "$am_count .debs ($am_size) — partial; run: portalgun build-apt-mirror"
+        warn=$((warn + 1))
+    else
+        _row "$WARN_MARK" "apt mirror" "empty — run (online): portalgun build-apt-mirror"
+        warn=$((warn + 1))
+    fi
 
     # ── Burp Suite Pro ───────────────────────────────────────────────
     echo "── Burp Suite Pro ────────────────────────"

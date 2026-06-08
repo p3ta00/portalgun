@@ -70,7 +70,17 @@ EOF
     find /var/log -type f \( -name "*.log" -o -name "*.log.*" -o -name "*.gz" \) -exec truncate -s 0 {} \; 2>/dev/null
     journalctl --rotate --vacuum-time=1s >/dev/null 2>&1 || true
 
-    print_status "apt clean..."
+    print_status "Folding apt .deb cache into the offline mirror (then clean)..."
+    # Keep the downloaded .debs for offline reinstall/repair: fold them into the
+    # local apt mirror pool and re-index before clearing the apt cache.
+    if [ -d /opt/portalgun/apt-mirror ] && ls /var/cache/apt/archives/*.deb >/dev/null 2>&1; then
+        mkdir -p /opt/portalgun/apt-mirror/pool
+        cp -n /var/cache/apt/archives/*.deb /opt/portalgun/apt-mirror/pool/ 2>/dev/null || true
+        if command -v dpkg-scanpackages >/dev/null 2>&1; then
+            ( cd /opt/portalgun/apt-mirror && dpkg-scanpackages -m pool /dev/null 2>/dev/null \
+                | tee Packages | gzip -9c > Packages.gz ) 2>/dev/null || true
+        fi
+    fi
     apt-get clean 2>/dev/null || true
 
     print_status "Removing temp_install sudoers..."

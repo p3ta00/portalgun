@@ -46,6 +46,8 @@ mkdir -p "$INSTALL_ROOT/data"
     cp "$SRC_ROOT/data/bapp-catalog.json" "$INSTALL_ROOT/data/bapp-catalog.json"
 [ -f "$SRC_ROOT/data/wheelhouse-packages.txt" ] && \
     cp "$SRC_ROOT/data/wheelhouse-packages.txt" "$INSTALL_ROOT/data/wheelhouse-packages.txt"
+[ -f "$SRC_ROOT/data/apt-mirror-packages.txt" ] && \
+    cp "$SRC_ROOT/data/apt-mirror-packages.txt" "$INSTALL_ROOT/data/apt-mirror-packages.txt"
 if [ -d "$SRC_ROOT/data/sliver-armory" ]; then
     rsync -a "$SRC_ROOT/data/sliver-armory/" "$INSTALL_ROOT/data/sliver-armory/"
 fi

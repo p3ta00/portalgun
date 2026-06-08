@@ -733,6 +733,25 @@ else
 fi
 
 # ───────────────────────────────────────────────────────────────────
+# PHASE 14: Offline apt mirror (future-proof — online, build-time)
+# Skip with PORTALGUN_SKIP_APT_MIRROR=1. Disk-guarded.
+# ───────────────────────────────────────────────────────────────────
+if [ "${PORTALGUN_SKIP_APT_MIRROR:-0}" != "1" ]; then
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo -e "  ${CYAN}PHASE 14: Offline apt mirror${NC}                            [99%]"
+    echo "═══════════════════════════════════════════════════════════════════"
+    set +e
+    sudo bash -c "source $SCRIPT_DIR/lib/build_apt_mirror.sh && build_apt_mirror '$SCRIPT_DIR/data/apt-mirror-packages.txt'" 2>&1 | tee -a "$LOG_FILE"
+    am_rc=${PIPESTATUS[0]}
+    set -e
+    [ "$am_rc" -eq 0 ] && print_success "apt mirror built (offline apt ready)" \
+        || print_warning "apt mirror build had issues (see $LOG_FILE)"
+else
+    print_status "apt mirror SKIPPED (PORTALGUN_SKIP_APT_MIRROR=1)"
+fi
+
+# ───────────────────────────────────────────────────────────────────
 # Done!
 # ───────────────────────────────────────────────────────────────────
 IP=$(hostname -I | awk '{print $1}')

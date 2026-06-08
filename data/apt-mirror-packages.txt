@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────
+# portalgun apt mirror — curated "future-proof" apt package set
+# ─────────────────────────────────────────────────────────────────────────
+# Top-level apt packages whose FULL recursive dependency closure is mirrored
+# into /opt/portalgun/apt-mirror, so a 100%-offline clone can `apt install`
+# them (and anything they pull) with no internet. The already-installed 1040
+# packages are also kept (their .debs) for offline repair/reinstall.
+#
+# One package per line. '#' comments and blank lines ignored.
+
+# ── Build toolchains / language runtimes (write+compile tools offline) ──
+build-essential
+gcc
+g++
+make
+cmake
+clang
+pkg-config
+golang
+rustc
+cargo
+nodejs
+npm
+ruby
+ruby-dev
+php
+php-cli
+default-jdk
+mono-devel
+python3-dev
+python3-venv
+
+# ── Common -dev libs future tools link against ──────────────────────
+libssl-dev
+libffi-dev
+libpcap-dev
+libpq-dev
+libsqlite3-dev
+libxml2-dev
+libxslt1-dev
+libkrb5-dev
+libldap2-dev
+libsasl2-dev
+libcurl4-openssl-dev
+zlib1g-dev
+libreadline-dev
+libbz2-dev
+libgmp-dev
+libmpfr-dev
+libcapstone-dev
+libunicorn-dev
+libusb-1.0-0-dev
+
+# ── Pentest / infra tools commonly pulled mid-engagement ────────────
+proxychains4
+socat
+tmux
+tcpdump
+net-tools
+dnsutils
+whois
+nmap
+masscan
+hashcat
+john
+hydra
+medusa
+sqlmap
+nikto
+gobuster
+ffuf
+seclists
+wordlists
+smbclient
+ldap-utils
+snmp
+redis-tools
+postgresql-client
+mariadb-client
+freerdp2-x11
+evil-winrm
+responder
+crackmapexec
+enum4linux
+
+# ── Forensics / RE ──────────────────────────────────────────────────
+binwalk
+foremost
+radare2
+gdb
+ltrace
+strace
+exiftool
+steghide
+git
+curl
+wget
+rsync
+jq
