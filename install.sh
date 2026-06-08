@@ -705,6 +705,14 @@ if [ "${PORTALGUN_SKIP_SLIVER:-0}" != "1" ]; then
     set -e
     [ $sliver_rc -eq 0 ] && print_success "Sliver installed" \
         || print_warning "Sliver install non-fatal failure (see $LOG_FILE)"
+
+    # Local offline armory so `armory` browse + install work with no internet.
+    set +e
+    sudo bash -c "source $SCRIPT_DIR/lib/build_sliver_armory.sh && build_sliver_armory" 2>&1 | tee -a "$LOG_FILE"
+    armory_rc=${PIPESTATUS[0]}
+    set -e
+    [ "$armory_rc" -eq 0 ] && print_success "Local Sliver armory ready (offline)" \
+        || print_warning "Local Sliver armory build had issues (see $LOG_FILE)"
 else
     print_status "Sliver install SKIPPED (PORTALGUN_SKIP_SLIVER=1)"
 fi

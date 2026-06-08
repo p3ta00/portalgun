@@ -42,6 +42,7 @@ sanitize_run() {
 ║    - /opt/tools/                                                   ║
 ║    - /opt/portalgun/wheels  (offline pip wheelhouse — kept)       ║
 ║    - /opt/portalgun/apt-mirror (offline apt mirror — kept)        ║
+║    - /opt/portalgun/sliver-armory (offline Sliver armory — kept)  ║
 ║  These are the things you WANT to ship in the master image.       ║
 ║  If you don't want them shipped, edit them out before sanitize.   ║
 ╚═══════════════════════════════════════════════════════════════════╝

@@ -386,6 +386,28 @@ PY
         fail=$((fail + 1))
     fi
 
+    # ── Offline armory ──────────────────────────────────────────────
+    # The local armory server lets `armory` browse + install work with no
+    # internet. Check the service is up, the signed index exists, and a user
+    # is pointed at it (no GitHub Default).
+    local armory_root="/opt/portalgun/sliver-armory/armory-data"
+    local armory_pkgs=0 armory_up=0 armory_cfg=0
+    if [ -s "$armory_root/.armory-index.json" ] && [ -s "$armory_root/.armory-index.minisig" ]; then
+        armory_pkgs=$(python3 -c "import json;d=json.load(open('$armory_root/.armory-index.json'));print(len(d.get('extensions',[]))+len(d.get('aliases',[])))" 2>/dev/null || echo 0)
+    fi
+    curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8888/health 2>/dev/null | grep -q 200 && armory_up=1
+    grep -rqs '127.0.0.1:8888' /root/.sliver/armories.json /root/.sliver-client/armories.json /home/*/.sliver/armories.json /home/*/.sliver-client/armories.json 2>/dev/null && armory_cfg=1
+    if [ "$armory_pkgs" -ge 100 ] && [ "$armory_up" -eq 1 ] && [ "$armory_cfg" -eq 1 ]; then
+        _row "$PASS_MARK" "Offline armory" "$armory_pkgs pkgs, server up, clients pointed local"
+        pass=$((pass + 1))
+    elif [ "$armory_pkgs" -gt 0 ]; then
+        _row "$WARN_MARK" "Offline armory" "$armory_pkgs pkgs indexed but server down/unconfigured — run: portalgun build-sliver-armory"
+        warn=$((warn + 1))
+    else
+        _row "$WARN_MARK" "Offline armory" "not built — run (online): portalgun build-sliver-armory"
+        warn=$((warn + 1))
+    fi
+
     # ── Web UI ───────────────────────────────────────────────────────
     echo "── Web UI ────────────────────────────────"
     if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:1337/ 2>/dev/null | grep -q 200; then
