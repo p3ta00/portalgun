@@ -273,25 +273,24 @@ PY
         _row "$FAIL_MARK" "BApps cached" "0 — bundle preload failed"
         fail=$((fail + 1))
     fi
-    # Honest check: confirm the license was actually APPLIED to a user's prefs
-    # (non-empty, looks like a Java preferences map) — not merely staged.
-    local lic_applied=0 lic_staged=0
-    [ -s /opt/portalgun/burpsuite/license-import/prefs.xml ] && lic_staged=1
+    # Honest check (exegol-style symlink model): the persistent store must hold
+    # a prefs.xml with an actual license key, and at least one user's burp dir
+    # must be SYMLINKED to that store (so a one-time activation persists).
+    local store_prefs="/opt/portalgun/burpsuite/burp-config/.java/.userPrefs/burp/prefs.xml"
+    local has_key=0 symlinked=0
+    [ -s "$store_prefs" ] && grep -q 'key="license1"' "$store_prefs" 2>/dev/null && has_key=1
     local up
-    for up in /root/.java/.userPrefs/burp/prefs.xml /home/*/.java/.userPrefs/burp/prefs.xml; do
-        if [ -s "$up" ] && grep -qiE '<map' "$up" 2>/dev/null; then
-            lic_applied=1
-            break
-        fi
+    for up in /root/.java/.userPrefs/burp /home/*/.java/.userPrefs/burp; do
+        if [ -L "$up" ]; then symlinked=1; break; fi
     done
-    if [ "$lic_applied" -eq 1 ]; then
-        _row "$PASS_MARK" "License applied" "active in user prefs.xml"
+    if [ "$has_key" -eq 1 ] && [ "$symlinked" -eq 1 ]; then
+        _row "$PASS_MARK" "Burp license" "license key in store, users symlinked (activates once, persists)"
         pass=$((pass + 1))
-    elif [ "$lic_staged" -eq 1 ]; then
-        _row "$WARN_MARK" "License applied" "staged but not applied — run: portalgun import burp-license <path>"
+    elif [ "$has_key" -eq 1 ]; then
+        _row "$WARN_MARK" "Burp license" "key staged but users not symlinked — run: portalgun import burp-license <file>"
         warn=$((warn + 1))
     else
-        _row "$WARN_MARK" "License applied" "no prefs.xml — run: portalgun import burp-license <path>"
+        _row "$WARN_MARK" "Burp license" "no license — upload prefs.xml (Admin → Burp License) or: portalgun import burp-license <file>"
         warn=$((warn + 1))
     fi
 

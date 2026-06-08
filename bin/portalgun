@@ -47,7 +47,7 @@ USAGE
     portalgun install burp                     # Burp Pro JAR + Java 21 + all BApps preloaded
     portalgun install sliver                   # Sliver C2 + full armory preloaded
     portalgun install all [bundle.json]        # install everything from bundle
-    portalgun import burp-license <prefs.xml>  # import your registered Burp Pro license blob
+    portalgun import burp-license <prefs.xml|burp-config dir|tarball>  # import your Burp license (symlinked, persists)
     portalgun update [burp|sliver]             # default: apt+github+pip+cargo; sub: just that one
     portalgun register                         # backfill registry from current installed state
     portalgun export [outfile]                 # dump registry → portalgun_bundle.json

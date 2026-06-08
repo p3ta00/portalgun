@@ -487,6 +487,7 @@
                 <button class="config-tab" data-admintab="github" onclick="switchAdminTab('github')">GitHub</button>
                 <button class="config-tab" data-admintab="pip" onclick="switchAdminTab('pip')">pip</button>
                 <button class="config-tab" data-admintab="cargo" onclick="switchAdminTab('cargo')">cargo</button>
+                <button class="config-tab" data-admintab="burp" onclick="switchAdminTab('burp')">Burp License</button>
             </div>
 
             <!-- APT Panel -->
@@ -585,6 +586,31 @@
                                onkeydown="if(event.key==='Enter') runInstall('cargo')">
                     </div>
                     <button onclick="runInstall('cargo')" class="action-btn green" id="cargo-install-btn">Install</button>
+                </div>
+            </div>
+
+            <!-- Burp License Panel -->
+            <div id="admin-burp-panel" class="admin-panel" style="display:none;">
+                <div style="color:var(--text2);font-size:0.82em;margin-bottom:12px;">
+                    Upload <strong>your own</strong> Burp Pro license to this image. It's staged into a
+                    persistent store and every user is symlinked to it (exegol-style), so Burp activates
+                    <strong>once</strong> and never re-registers. Never baked into the repo or shared clones.
+                </div>
+                <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:14px;font-size:0.82em;color:var(--text2);">
+                    <div style="color:var(--blue);margin-bottom:6px;font-weight:600;">Which file?</div>
+                    Upload <code>prefs.xml</code> — the Burp Java userPrefs file that holds your license.<br>
+                    From exegol it's at:
+                    <code style="color:var(--green);">~/.exegol/my-resources/setup/burp-config/.java/.userPrefs/burp/prefs.xml</code><br>
+                    Otherwise it's at <code>~/.java/.userPrefs/burp/prefs.xml</code> on a machine where Burp is already activated.
+                    A <code>.tar.gz</code> of that <code>burp-config</code> folder also works.
+                </div>
+                <div style="display:flex;gap:10px;align-items:flex-end;">
+                    <div style="flex:1;">
+                        <label style="display:block;color:var(--text2);font-size:0.82em;margin-bottom:6px;">License file (prefs.xml or burp-config .tar.gz)</label>
+                        <input id="burp-file" type="file" accept=".xml,.tar.gz,.tgz,.tar"
+                               style="width:100%;padding:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;font:inherit;">
+                    </div>
+                    <button onclick="uploadBurpLicense()" class="action-btn green" id="burp-upload-btn">Upload &amp; Import</button>
                 </div>
             </div>
 
@@ -2030,6 +2056,35 @@ function switchAdminTab(tab) {
     document.querySelector(`[data-admintab="${tab}"]`).classList.add('active');
     document.querySelectorAll('.admin-panel').forEach(p => p.style.display = 'none');
     document.getElementById(`admin-${tab}-panel`).style.display = 'block';
+}
+
+async function uploadBurpLicense() {
+    const inp = document.getElementById('burp-file');
+    const btn = document.getElementById('burp-upload-btn');
+    if (!inp.files || !inp.files.length) {
+        adminOutputLine('[!] Choose your prefs.xml (or burp-config .tar.gz) first');
+        return;
+    }
+    const file = inp.files[0];
+    const fd = new FormData();
+    fd.append('file', file);
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Uploading...';
+    adminOutputLine('[*] Uploading ' + file.name + ' (' + Math.round(file.size / 1024) + ' KB)...');
+    try {
+        const r = await fetch('/api/admin/burp-license', { method: 'POST', body: fd });
+        const data = await r.json();
+        (data.output || '').split('\n').forEach(l => { if (l.trim()) adminOutputLine(l); });
+        if (data.success) {
+            adminOutputLine('[+] Burp license imported. Launch Burp once to activate (uses one seat); it persists after — no more registration.');
+        } else {
+            adminOutputLine('[!] Import failed: ' + (data.error || 'see output above'));
+        }
+    } catch (e) {
+        adminOutputLine('[!] Upload failed: ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = orig;
+    }
 }
 
 function updateGithubSubCats() {

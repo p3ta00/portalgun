@@ -6,6 +6,10 @@ BURP_DIR="${BURP_DIR:-/opt/portalgun/burpsuite}"
 BURP_JAR="${BURP_JAR:-$BURP_DIR/BurpSuitePro.jar}"
 BURP_LICENSE_DIR="${BURP_LICENSE_DIR:-$BURP_DIR/license-import}"
 BURP_LICENSE_TEMPLATE="${BURP_LICENSE_TEMPLATE:-$BURP_LICENSE_DIR/prefs.xml}"
+# Persistent Burp config store. Each user's ~/.java/.userPrefs/burp and
+# ~/.BurpSuite are SYMLINKED here (exegol-style), so a one-time activation
+# writes back through the symlink and persists — Burp never re-registers.
+BURP_CONFIG_STORE="${BURP_CONFIG_STORE:-$BURP_DIR/burp-config}"
 BURP_BAPPS_DIR="${BURP_BAPPS_DIR:-$BURP_DIR/bapps}"
 BURP_CDN="https://portswigger-cdn.net/burp/releases/download?product=pro&type=Jar"
 # BApps live under PortSwigger's GitHub org (501 repos as of writing).
@@ -71,30 +75,48 @@ EOF
     _burp_ok "Launcher → /usr/local/bin/burpsuite-pro"
 }
 
+# Symlink every user's Burp config dirs to the shared persistent store, the way
+# exegol's burp-persist.sh does. A one-time online activation (one of the 25
+# license seats, on first GUI launch) is written back through the symlink into
+# the store and reused forever after — so Burp does NOT re-register on every
+# launch (which is what gets a license flagged).
 apply_burp_license() {
-    if [ ! -f "$BURP_LICENSE_TEMPLATE" ]; then
-        _burp_log "No license file at $BURP_LICENSE_TEMPLATE — Burp will run unactivated."
-        _burp_log "Drop a registered prefs.xml there (or run: portalgun import burp-license <path>)"
+    local store_prefs="$BURP_CONFIG_STORE/.java/.userPrefs/burp"
+    local store_bsuite="$BURP_CONFIG_STORE/.BurpSuite"
+
+    if [ ! -d "$store_prefs" ]; then
+        _burp_log "No Burp config store at $store_prefs — Burp will run unactivated."
+        _burp_log "Provide one with: portalgun import burp-license <prefs.xml | burp-config dir | tarball>"
         return 0
     fi
+
+    # The store must be writable by whoever launches Burp so the activation can
+    # persist. Use a shared 'burp' group rather than world-writable.
+    groupadd -f burp 2>/dev/null || true
+
     while IFS=: read -r user home; do
-        local target="$home/.java/.userPrefs/burp"
-        mkdir -p "$target/pro" "$target/community"
-        cp "$BURP_LICENSE_TEMPLATE" "$target/prefs.xml"
-        # The prefs.xml carries the activated license blob — keep it private to
-        # the owning user so it isn't world-readable to other local accounts.
-        chmod 600 "$target/prefs.xml"
-        # Pro subdir gets an empty prefs.xml so Burp doesn't crash on first load
-        if [ ! -f "$target/pro/prefs.xml" ]; then
-            cat > "$target/pro/prefs.xml" <<'EOF'
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!DOCTYPE map SYSTEM "http://java.sun.com/dtd/preferences.dtd">
-<map MAP_XML_VERSION="1.0"/>
-EOF
+        id -nG "$user" 2>/dev/null | grep -qw burp || usermod -aG burp "$user" 2>/dev/null || true
+
+        # ~/.java/.userPrefs/burp  ->  store
+        mkdir -p "$home/.java/.userPrefs"
+        rm -rf "$home/.java/.userPrefs/burp"
+        ln -sfn "$store_prefs" "$home/.java/.userPrefs/burp"
+        chown -h "$user:$user" "$home/.java/.userPrefs/burp" 2>/dev/null || true
+        chown "$user:$user" "$home/.java" "$home/.java/.userPrefs" 2>/dev/null || true
+
+        # ~/.BurpSuite -> store (extensions, sessions, themes, bapps)
+        if [ -d "$store_bsuite" ]; then
+            rm -rf "$home/.BurpSuite"
+            ln -sfn "$store_bsuite" "$home/.BurpSuite"
+            chown -h "$user:$user" "$home/.BurpSuite" 2>/dev/null || true
         fi
-        chown -R "$user:$user" "$home/.java" 2>/dev/null || true
-        _burp_ok "License applied for $user ($target)"
+        _burp_ok "Burp config linked for $user → $BURP_CONFIG_STORE"
     done < <(_burp_users)
+
+    # Group-writable so activation persists regardless of which user runs Burp.
+    chgrp -R burp "$BURP_CONFIG_STORE" 2>/dev/null || true
+    chmod -R g+rwX "$BURP_CONFIG_STORE" 2>/dev/null || true
+    find "$BURP_CONFIG_STORE" -type d -exec chmod g+s {} + 2>/dev/null || true
 }
 
 fetch_bapp_catalog() {
@@ -314,22 +336,56 @@ update_burp_pro() {
     _burp_ok "Burp Suite Pro updated"
 }
 
+# Accepts any of:
+#   - prefs.xml                  (the Java userPrefs file holding the license)
+#   - a burp-config directory    (exegol-style: contains .java/.userPrefs/burp[/.BurpSuite])
+#   - a .tar.gz/.tgz/.tar        (a tarball of that burp-config directory)
+# Populates the persistent store, then symlinks every user to it.
 import_burp_license() {
     local src="$1"
-    if [ -z "$src" ] || [ ! -f "$src" ]; then
-        _burp_err "Usage: portalgun import burp-license <path-to-prefs.xml>"
+    if [ -z "$src" ] || [ ! -e "$src" ]; then
+        _burp_err "Usage: portalgun import burp-license <prefs.xml | burp-config dir | tarball>"
         return 1
     fi
-    # Sanity-check the input is a Java preferences XML (a Burp prefs.xml), so a
-    # wrong file doesn't get silently staged and reported as a valid license.
-    if ! head -c 512 "$src" | grep -qiE 'preferences\.dtd|<map'; then
-        _burp_err "Not a Burp prefs.xml (expected a Java preferences XML with a <map> root)"
+    local store_prefs="$BURP_CONFIG_STORE/.java/.userPrefs/burp"
+    mkdir -p "$store_prefs"
+
+    if [ -d "$src" ]; then
+        local found
+        found=$(find "$src" -type d -path '*/.java/.userPrefs/burp' 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            cp -a "$found/." "$store_prefs/"
+        elif [ -f "$src/prefs.xml" ]; then
+            cp -a "$src/prefs.xml" "$store_prefs/prefs.xml"
+        else
+            _burp_err "No .java/.userPrefs/burp or prefs.xml found under $src"
+            return 1
+        fi
+        local bs
+        bs=$(find "$src" -type d -name '.BurpSuite' 2>/dev/null | head -1)
+        [ -n "$bs" ] && { mkdir -p "$BURP_CONFIG_STORE/.BurpSuite"; cp -a "$bs/." "$BURP_CONFIG_STORE/.BurpSuite/" 2>/dev/null || true; }
+    elif printf '%s' "$src" | grep -qiE '\.(tar\.gz|tgz|tar)$'; then
+        local tmp; tmp=$(mktemp -d)
+        if tar xf "$src" -C "$tmp" 2>/dev/null; then
+            import_burp_license "$tmp"; local rc=$?
+            rm -rf "$tmp"; return $rc
+        fi
+        rm -rf "$tmp"; _burp_err "Could not extract $src"; return 1
+    else
+        if ! head -c 512 "$src" | grep -qiE 'preferences\.dtd|<map'; then
+            _burp_err "Not a Burp prefs.xml (expected a Java preferences XML with a <map> root)"
+            return 1
+        fi
+        cp "$src" "$store_prefs/prefs.xml"
+    fi
+
+    if [ ! -s "$store_prefs/prefs.xml" ]; then
+        _burp_err "No prefs.xml ended up in the store — nothing imported"
         return 1
     fi
-    mkdir -p "$BURP_LICENSE_DIR"
-    chmod 700 "$BURP_LICENSE_DIR"
-    cp "$src" "$BURP_LICENSE_TEMPLATE"
-    chmod 600 "$BURP_LICENSE_TEMPLATE"
-    _burp_ok "License blob staged at $BURP_LICENSE_TEMPLATE"
+    # Back-compat copy for tooling that still looks at the legacy template path.
+    mkdir -p "$BURP_LICENSE_DIR" && chmod 700 "$BURP_LICENSE_DIR"
+    cp "$store_prefs/prefs.xml" "$BURP_LICENSE_TEMPLATE" 2>/dev/null || true
+    _burp_ok "Burp config staged → $BURP_CONFIG_STORE"
     apply_burp_license
 }

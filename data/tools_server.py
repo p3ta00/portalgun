@@ -21,7 +21,9 @@ from datetime import datetime
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[mGKHFABCDJn]')
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max request body
+# 64MB body cap: large enough for a Burp prefs.xml (~3.3MB) or a small
+# burp-config tarball; small enough to reject runaway uploads.
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
 
 # Background job tracking — protected by lock
 JOBS = {}
@@ -1063,6 +1065,39 @@ def admin_recent():
                 continue
     entries.sort(key=lambda x: x.get('added', ''), reverse=True)
     return jsonify(entries[:20])
+
+
+@app.route('/api/admin/burp-license', methods=['POST'])
+def admin_burp_license():
+    """Upload the operator's own Burp license file and import it.
+
+    Accepts the Burp Java userPrefs file (prefs.xml) — the file that holds the
+    license — or a .tar.gz of the burp-config tree. Hands it to
+    `portalgun import burp-license`, which stages it into the persistent store
+    and symlinks every user so a one-time activation persists.
+    """
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'success': False, 'error': 'No file uploaded (field name: file)'}), 400
+    from werkzeug.utils import secure_filename
+    fn = secure_filename(f.filename) or 'prefs.xml'
+    # Keep a recognizable extension so import can tell prefs.xml from a tarball.
+    if not fn.lower().endswith(('.xml', '.tar.gz', '.tgz', '.tar')):
+        fn = fn + '.xml'
+    tmpdir = tempfile.mkdtemp(prefix='burp-import-')
+    dst = os.path.join(tmpdir, fn)
+    try:
+        f.save(dst)
+        proc = subprocess.run(
+            ['sudo', '-n', 'portalgun', 'import', 'burp-license', dst],
+            capture_output=True, text=True, timeout=180
+        )
+        out = ANSI_ESCAPE.sub('', (proc.stdout or '') + (proc.stderr or ''))
+        return jsonify({'success': proc.returncode == 0, 'filename': fn, 'output': out})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 @app.route('/api/admin/install', methods=['POST'])

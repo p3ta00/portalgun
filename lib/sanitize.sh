@@ -88,12 +88,14 @@ EOF
 
     print_status "Removing Burp Pro license (recipients import their own)..."
     # The license is operator-specific and must never ship in a distributed
-    # clone — strip the staging copy and every user's activated prefs.xml.
-    rm -f /opt/portalgun/burpsuite/license-import/prefs.xml 2>/dev/null || true
-    rm -f /root/.java/.userPrefs/burp/prefs.xml 2>/dev/null || true
+    # clone — strip the persistent store, the legacy staging copy, and every
+    # user's symlink/prefs. Each recipient uploads their own (Admin → Burp).
+    rm -rf /opt/portalgun/burpsuite/burp-config 2>/dev/null || true
+    rm -f  /opt/portalgun/burpsuite/license-import/prefs.xml 2>/dev/null || true
+    rm -rf /root/.java/.userPrefs/burp 2>/dev/null || true
     for u in /home/*; do
         [ -d "$u" ] || continue
-        rm -f "$u/.java/.userPrefs/burp/prefs.xml" 2>/dev/null || true
+        rm -rf "$u/.java/.userPrefs/burp" 2>/dev/null || true
     done
 
     print_status "Clearing NetworkManager state + DHCP leases..."

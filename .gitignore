@@ -36,8 +36,10 @@ data/sliver-armory/
 !data/bapp-catalog.json
 
 # Burp Pro license is operator-specific and must NEVER be committed.
-# Each operator imports their own via: portalgun import burp-license <path>
+# Each operator imports their own via the Admin UI or: portalgun import burp-license <path>
 prefs.xml
 **/license-import/
+**/burp-config/
 **/.java/
+**/.BurpSuite/
 *.userPrefs
