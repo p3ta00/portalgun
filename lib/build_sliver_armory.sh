@@ -38,39 +38,110 @@ ensure_armory_server() {
     curl -fsSL --max-time 180 -o "$ARMORY_BIN" "$url" && chmod +x "$ARMORY_BIN"
 }
 
-# Stage bundled package tarballs, named by their INTERNAL manifest command_name
-# (some bundle tarballs are misnamed). armory-server v0.0.1 indexes only the v1
-# single-command format; v2 multi-command packages (package_name + commands[])
-# are skipped here but remain pre-installed in ~/.sliver-client/extensions and
-# usable in-session.
+# Stage bundled package tarballs named by their INTERNAL manifest command_name
+# (some bundle tarballs are misnamed). armory-server requires one tarball per
+# command_name. v1 single-command packages are copied as-is; v2 multi-command
+# packages (package_name + commands[]) are mechanically SPLIT into one v1
+# tarball per command (exactly how the official armory.json represents them),
+# so all their commands appear in the offline catalog too.
 stage_armory_packages() {
     rm -rf "$ARMORY_ROOT/extensions" "$ARMORY_ROOT/aliases" \
            "$ARMORY_ROOT/.armory-index.json" "$ARMORY_ROOT/.armory-index.minisig" \
            "$ARMORY_ROOT/.armory-minisigs"
     mkdir -p "$ARMORY_ROOT/extensions" "$ARMORY_ROOT/aliases"
     python3 - "$ARMORY_SRC" "$ARMORY_ROOT" <<'PY'
-import os, sys, glob, tarfile, json, shutil
+import os, sys, glob, tarfile, json, shutil, io, tempfile
 src, root = sys.argv[1], sys.argv[2]
 seen = set(); ext = ali = 0
+
+def add_tar(dst_dir, cmd, manifest, members):
+    """Write <cmd>.tar.gz with a v1 extension.json + the given (name,bytes) files,
+    matching the official package layout: GNU tar, files under a leading ./ ."""
+    global ext
+    if cmd in seen:
+        return
+    seen.add(cmd)
+    out = os.path.join(dst_dir, cmd + ".tar.gz")
+    with tarfile.open(out, "w:gz", format=tarfile.GNU_FORMAT) as w:
+        d = tarfile.TarInfo("./"); d.type = tarfile.DIRTYPE; d.mode = 0o755
+        w.addfile(d)
+        data = json.dumps(manifest, indent=2).encode()
+        ti = tarfile.TarInfo("./extension.json"); ti.size = len(data); ti.mode = 0o644
+        w.addfile(ti, io.BytesIO(data))
+        for name, blob in members:
+            ti = tarfile.TarInfo("./" + os.path.basename(name)); ti.size = len(blob); ti.mode = 0o644
+            w.addfile(ti, io.BytesIO(blob))
+    ext += 1
+
 for tb in glob.glob(os.path.join(src, "**", "*.tar.gz"), recursive=True):
     try:
-        with tarfile.open(tb) as t:
-            mf = kind = None
-            for n in t.getnames():
-                b = os.path.basename(n)
-                if b == "extension.json": mf, kind = n, "extensions"; break
-                if b == "alias.json":     mf, kind = n, "aliases"; break
-            if not mf:
-                continue
-            m = json.load(t.extractfile(mf))
+        t = tarfile.open(tb)
     except Exception:
         continue
-    cn = (m.get("command_name") or "").strip()
-    if not cn or cn in seen:
-        continue
-    seen.add(cn)
-    shutil.copy(tb, os.path.join(root, kind, cn + ".tar.gz"))
-    ext += (kind == "extensions"); ali += (kind == "aliases")
+    with t:
+        mf = kind = None
+        for n in t.getnames():
+            b = os.path.basename(n)
+            if b == "extension.json": mf, kind = n, "extensions"; break
+            if b == "alias.json":     mf, kind = n, "aliases"; break
+        if not mf:
+            continue
+        try:
+            m = json.load(t.extractfile(mf))
+        except Exception:
+            continue
+        prefix = os.path.dirname(mf)  # files inside may sit under a subdir
+        def read(path):
+            for cand in (path, os.path.join(prefix, path) if prefix else path):
+                try:
+                    return t.extractfile(cand).read()
+                except Exception:
+                    pass
+            return None
+
+        cmds = m.get("commands")
+        if isinstance(cmds, list) and cmds and not (m.get("command_name") or "").strip():
+            # v2 multi-command → split into one v1 tarball per command
+            for c in cmds:
+                cn = (c.get("command_name") or "").strip()
+                if not cn or cn in seen:
+                    continue
+                v1 = {
+                    "name": c.get("command_name") or m.get("name"),
+                    "version": m.get("version", ""),
+                    "command_name": cn,
+                    "extension_author": m.get("extension_author", ""),
+                    "original_author": m.get("original_author", ""),
+                    "repo_url": m.get("repo_url", ""),
+                    "help": c.get("help", ""),
+                    "long_help": c.get("long_help", ""),
+                    "entrypoint": c.get("entrypoint", ""),
+                    "depends_on": c.get("depends_on", ""),
+                    "init": c.get("init", ""),
+                    "arguments": c.get("arguments", []),
+                    "files": c.get("files", []),
+                }
+                members = []
+                ok = True
+                for f in c.get("files", []):
+                    p = f.get("path")
+                    if not p:
+                        continue
+                    blob = read(p)
+                    if blob is None:
+                        ok = False; break
+                    members.append((p, blob))
+                if ok:
+                    add_tar(os.path.join(root, "extensions"), cn, v1, members)
+        else:
+            # v1 single-command (extension or alias) → copy with correct name
+            cn = (m.get("command_name") or "").strip()
+            if not cn or cn in seen:
+                continue
+            seen.add(cn)
+            shutil.copy(tb, os.path.join(root, kind, cn + ".tar.gz"))
+            if kind == "aliases": ali += 1
+            else: ext += 1
 print("%d %d" % (ext, ali))
 PY
 }
