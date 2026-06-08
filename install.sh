@@ -118,8 +118,16 @@ echo ""
 print_warning "Press ENTER to continue or Ctrl+C to abort..."
 read -r
 
-# Start logging
-> "$LOG_FILE"  # Clear/create log file
+# Serialize installs — two concurrent runs both drive apt and write the
+# registry/ /opt/tools, which corrupts state. Fail fast if one is running.
+if command -v flock >/dev/null 2>&1 && exec 9>/tmp/portalgun-install.lock 2>/dev/null; then
+    flock -n 9 || { echo "Another portalgun install is already running (lock held). Aborting."; exit 1; }
+fi
+
+# Start logging — rotate the previous run's log instead of truncating it, so a
+# re-run after a partial/failed install doesn't destroy the prior record.
+[ -f "$LOG_FILE" ] && mv -f "$LOG_FILE" "$LOG_FILE.prev" 2>/dev/null || true
+: > "$LOG_FILE"  # create fresh log file
 if [ "$DEBUG_MODE" = false ]; then
     # Tee status messages to both screen and log
     exec > >(tee -a "$LOG_FILE") 2>&1
@@ -134,9 +142,13 @@ echo "════════════════════════�
 # ───────────────────────────────────────────────────────────────────
 print_status "Configuring system for non-interactive install..."
 
-# Passwordless sudo
+# Passwordless sudo for the duration of the install only. Removed on exit
+# (success OR abort) so an interrupted install doesn't leave a NOPASSWD-ALL
+# rule behind. Safe to remove: the web UI's installer relies on the permanent
+# 99-portalgun / Kali-default kali-grant-root rules, not this temp rule.
 echo "$USER ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/temp_install > /dev/null
 sudo chmod 440 /etc/sudoers.d/temp_install
+trap 'sudo rm -f /etc/sudoers.d/temp_install 2>/dev/null || true' EXIT
 
 # Suppress ALL interactive prompts and restart notices
 export DEBIAN_FRONTEND=noninteractive
