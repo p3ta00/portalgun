@@ -710,6 +710,29 @@ else
 fi
 
 # ───────────────────────────────────────────────────────────────────
+# PHASE 13: Offline pip wheelhouse (future-proof — online, build-time)
+# Skip with PORTALGUN_SKIP_WHEELHOUSE=1. Disk-guarded: stops safely before
+# filling the partition (expand disk + re-run 'portalgun build-wheelhouse').
+# ───────────────────────────────────────────────────────────────────
+if [ "${PORTALGUN_SKIP_WHEELHOUSE:-0}" != "1" ]; then
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo -e "  ${CYAN}PHASE 13: Offline pip wheelhouse${NC}                        [98%]"
+    echo "═══════════════════════════════════════════════════════════════════"
+    set +e
+    sudo bash -c "source $SCRIPT_DIR/lib/build_wheelhouse.sh && build_wheelhouse '$SCRIPT_DIR/data/wheelhouse-packages.txt'" 2>&1 | tee -a "$LOG_FILE"
+    wh_rc=${PIPESTATUS[0]}
+    set -e
+    case "$wh_rc" in
+        0) print_success "Wheelhouse built (offline pip ready)" ;;
+        2) print_warning "Wheelhouse partial — disk floor reached; expand disk + run: portalgun build-wheelhouse" ;;
+        *) print_warning "Wheelhouse build had issues (see $LOG_FILE)" ;;
+    esac
+else
+    print_status "Wheelhouse SKIPPED (PORTALGUN_SKIP_WHEELHOUSE=1)"
+fi
+
+# ───────────────────────────────────────────────────────────────────
 # Done!
 # ───────────────────────────────────────────────────────────────────
 IP=$(hostname -I | awk '{print $1}')

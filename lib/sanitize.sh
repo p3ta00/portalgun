@@ -40,6 +40,8 @@ sanitize_run() {
 ║    - Firefox saved passwords (persists in the profile)            ║
 ║    - portalgun registry                                            ║
 ║    - /opt/tools/                                                   ║
+║    - /opt/portalgun/wheels  (offline pip wheelhouse — kept)       ║
+║    - /opt/portalgun/apt-mirror (offline apt mirror — kept)        ║
 ║  These are the things you WANT to ship in the master image.       ║
 ║  If you don't want them shipped, edit them out before sanitize.   ║
 ╚═══════════════════════════════════════════════════════════════════╝
@@ -89,6 +91,14 @@ EOF
 
     print_status "Clearing /tmp and /var/tmp..."
     rm -rf /tmp/* /tmp/.[!.]* /var/tmp/* 2>/dev/null || true
+
+    print_status "Switching pip to OFFLINE (local wheelhouse)..."
+    # Clones are used offline — point pip at the bundled wheelhouse so future
+    # `pip install` resolves locally with no internet.
+    if [ -f "$PORTALGUN_LIB/offline.sh" ]; then
+        source "$PORTALGUN_LIB/offline.sh"
+        offline_on 2>/dev/null || print_warning "Could not set pip offline mode"
+    fi
 
     print_status "fstrim..."
     fstrim -av 2>/dev/null || true

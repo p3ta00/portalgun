@@ -54,6 +54,8 @@ USAGE
     portalgun list [apt|github|all]
     portalgun status
     portalgun verify [bundle.json]             # audit bundle vs installed reality
+    portalgun build-wheelhouse [list.txt]      # download offline pip wheelhouse (online, build-time)
+    portalgun offline <on|off|status>          # switch pip to local wheelhouse (offline) or PyPI
     portalgun doctor [--fix-shadows]
     portalgun sanitize [--yes]
     portalgun help
@@ -186,6 +188,14 @@ case "$cmd" in
     verify)
         source "$PORTALGUN_LIB/verify.sh"
         verify_install "${1:-}"
+        ;;
+    build-wheelhouse)
+        source "$PORTALGUN_LIB/build_wheelhouse.sh"
+        build_wheelhouse "${1:-}"
+        ;;
+    offline)
+        source "$PORTALGUN_LIB/offline.sh"
+        offline_cmd "${1:-status}"
         ;;
     doctor)
         source "$PORTALGUN_LIB/doctor.sh" "$@"

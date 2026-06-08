@@ -200,6 +200,27 @@ PY
         warn=$((warn + 1))
     fi
 
+    # ── Offline wheelhouse ──────────────────────────────────────────
+    echo "── Offline pip wheelhouse ────────────────"
+    local wheels_dir="${PORTALGUN_WHEELS:-/opt/portalgun/wheels}"
+    local wh_count=0 wh_size="0"
+    if [ -d "$wheels_dir" ]; then
+        wh_count=$(find "$wheels_dir" -maxdepth 1 -type f \( -name '*.whl' -o -name '*.tar.gz' -o -name '*.zip' \) 2>/dev/null | wc -l)
+        wh_size=$(du -sh "$wheels_dir" 2>/dev/null | cut -f1)
+    fi
+    local pip_mode="online"
+    grep -q 'no-index' /etc/pip.conf 2>/dev/null && pip_mode="offline"
+    if [ "$wh_count" -ge 200 ]; then
+        _row "$PASS_MARK" "pip wheelhouse" "$wh_count wheels ($wh_size), pip=$pip_mode"
+        pass=$((pass + 1))
+    elif [ "$wh_count" -gt 0 ]; then
+        _row "$WARN_MARK" "pip wheelhouse" "$wh_count wheels ($wh_size) — partial; run: portalgun build-wheelhouse"
+        warn=$((warn + 1))
+    else
+        _row "$WARN_MARK" "pip wheelhouse" "empty — run (online): portalgun build-wheelhouse"
+        warn=$((warn + 1))
+    fi
+
     # ── Burp Suite Pro ───────────────────────────────────────────────
     echo "── Burp Suite Pro ────────────────────────"
     if [ -f /opt/portalgun/burpsuite/BurpSuitePro.jar ]; then

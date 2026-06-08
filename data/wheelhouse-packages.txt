@@ -1,0 +1,157 @@
+# ─────────────────────────────────────────────────────────────────────────
+# portalgun wheelhouse — broad "future-proof" pip package set
+# ─────────────────────────────────────────────────────────────────────────
+# These are the TOP-LEVEL packages pip will download (with their full
+# dependency closure) into /opt/portalgun/wheels so that, on a 100%-offline
+# clone, a future or self-written tool can `pip install` its libraries with no
+# internet. pip resolves and pulls all transitive deps automatically, so this
+# list is curated by intent, not exhaustive.
+#
+# One package spec per line. '#' comments and blank lines ignored.
+# Pin nothing here — we want the latest wheels at build time.
+
+# ── HTTP / networking ───────────────────────────────────────────────
+requests
+requests-toolbelt
+httpx
+aiohttp
+urllib3
+websockets
+websocket-client
+dnspython
+scapy
+paramiko
+fabric
+netmiko
+pysnmp
+pexpect
+netaddr
+ipaddress
+pysocks
+mitmproxy
+
+# ── Pentest / AD / Windows ──────────────────────────────────────────
+impacket
+ldap3
+pyasn1
+certipy-ad
+minikerberos
+pypykatz
+minidump
+aardwolf
+pywerview
+bloodhound
+neo4j
+masky
+coercer
+dploot
+nxc
+
+# ── Crypto ──────────────────────────────────────────────────────────
+cryptography
+pycryptodome
+pyopenssl
+passlib
+bcrypt
+pyjwt
+ecdsa
+pynacl
+
+# ── Web scraping / browser automation ───────────────────────────────
+beautifulsoup4
+lxml
+html5lib
+cssselect
+parsel
+mechanicalsoup
+selenium
+playwright
+pyppeteer
+
+# ── Web frameworks (for building tooling / C2 / listeners) ──────────
+flask
+flask-cors
+fastapi
+uvicorn
+gunicorn
+jinja2
+werkzeug
+starlette
+pydantic
+django
+aiosmtpd
+
+# ── Data / output / CLI ─────────────────────────────────────────────
+numpy
+pandas
+scipy
+matplotlib
+openpyxl
+pyyaml
+toml
+jsonschema
+tabulate
+rich
+click
+typer
+colorama
+termcolor
+tqdm
+prettytable
+python-dateutil
+
+# ── Reverse engineering / exploit dev ───────────────────────────────
+pwntools
+capstone
+keystone-engine
+unicorn
+ropper
+ropgadget
+pyelftools
+pefile
+macholib
+filebytes
+angr
+z3-solver
+frida
+frida-tools
+qiling
+
+# ── Fuzzing ─────────────────────────────────────────────────────────
+boofuzz
+
+# ── Cloud ───────────────────────────────────────────────────────────
+boto3
+botocore
+azure-identity
+azure-mgmt-core
+azure-cli-core
+google-cloud-core
+msal
+msrestazure
+kubernetes
+pacu
+
+# ── Recon / OSINT ───────────────────────────────────────────────────
+shodan
+censys
+python-whois
+sublist3r
+dnsrecon
+wafw00f
+
+# ── Utility / general ───────────────────────────────────────────────
+psutil
+ipython
+faker
+names
+pyperclip
+watchdog
+schedule
+python-dotenv
+setuptools
+wheel
+pip
+build
+poetry-core
+hatchling
