@@ -340,24 +340,50 @@ PY
         fi
     fi
 
-    # ── Sliver smoke test ───────────────────────────────────────────
-    echo "── Sliver smoke test ─────────────────────"
-    if command -v sliver-server >/dev/null 2>&1; then
-        cat > /tmp/pg-verify-sliver.rc <<'RC'
-extensions
-exit
-RC
-        local sl_installed
-        sl_installed=$(timeout 30 sliver-server --rc /tmp/pg-verify-sliver.rc 2>&1 | \
-                        sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | grep -cE "✅" || true)
-        rm -f /tmp/pg-verify-sliver.rc
-        if [ "$sl_installed" -ge 30 ]; then
-            _row "$PASS_MARK" "Sliver console" "lists $sl_installed installed in --rc check"
-            pass=$((pass + 1))
-        else
-            _row "$WARN_MARK" "Sliver console" "only $sl_installed installed entries showed"
-            warn=$((warn + 1))
-        fi
+    # ── Sliver extension validity ───────────────────────────────────
+    # Honest measure: how many staged extensions have a VALID manifest
+    # (a command_name, or a v2 commands[] array) with all referenced binaries
+    # present. NOT the online `armory` ✅ count, which only reflects how many of
+    # the ~58-entry remote catalog match locally and needs internet.
+    echo "── Sliver extension validity ─────────────"
+    local sl_valid sl_total
+    read -r sl_valid sl_total < <(python3 - <<'PY' 2>/dev/null
+import json, os, glob
+base = "/root/.sliver-client/extensions"
+dirs = [d for d in glob.glob(base + "/*") if os.path.isdir(d)]
+valid = 0
+for d in dirs:
+    mf = os.path.join(d, "extension.json")
+    if not os.path.isfile(mf):
+        continue
+    try:
+        m = json.load(open(mf))
+    except Exception:
+        continue
+    cmds = m.get("commands") or ([m] if m.get("command_name") else [])
+    if not cmds:
+        continue
+    ok = True
+    for c in cmds:
+        for f in c.get("files", []):
+            p = f.get("path")
+            if p and not os.path.isfile(os.path.join(d, p)):
+                ok = False
+    if ok:
+        valid += 1
+print(valid, len(dirs))
+PY
+)
+    sl_valid=${sl_valid:-0}; sl_total=${sl_total:-0}
+    if [ "$sl_total" -gt 0 ] && [ "$sl_valid" -eq "$sl_total" ]; then
+        _row "$PASS_MARK" "Sliver extensions valid" "$sl_valid/$sl_total manifests valid (v1+v2), binaries present"
+        pass=$((pass + 1))
+    elif [ "$sl_valid" -gt 0 ]; then
+        _row "$WARN_MARK" "Sliver extensions valid" "$sl_valid/$sl_total valid — $((sl_total - sl_valid)) bad manifest/missing files"
+        warn=$((warn + 1))
+    else
+        _row "$FAIL_MARK" "Sliver extensions valid" "0 valid manifests"
+        fail=$((fail + 1))
     fi
 
     # ── Web UI ───────────────────────────────────────────────────────
