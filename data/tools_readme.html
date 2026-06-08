@@ -1375,30 +1375,107 @@ const toolsData = [
 // Lookup: tool path → README/homepage info from registry
 window._readmeIndex = { byPath: {}, byPackage: {}, byName: {} };
 
-function readmeButtonFor(tool) {
-    // Try lookup by path (works for static tools that match installed tool_dir)
-    let info = null, repoUrl = null;
-    if (tool.path) {
+// Registry of README descriptors so inline onclick handlers can reference a
+// tool by index instead of JSON-escaping a whole descriptor into HTML.
+window._readmeReg = [];
+
+// Build the ordered, 100%-offline README fallback chain for a tool.
+//   mEntry = the installed-manifest entry (github/apt) when available, else null.
+// Order: real file -> apt man page -> <binary> --help (linux-runnable only)
+//        -> metadata stub (always present, can never fail).
+function buildReadmeChain(tool, mEntry) {
+    const type = (mEntry && mEntry.type) || tool.type || '';
+    const name = tool.name || (mEntry && mEntry.name) || '';
+    const lname = (name || '').toLowerCase();
+    let repoUrl = '';
+    const chain = [];
+
+    // 1) Real README file on disk (github clone, apt doc, or cached static readme)
+    let readmePath = null;
+    if (mEntry) {
+        if (mEntry.type === 'github' && mEntry.readme_path) { readmePath = mEntry.readme_path; repoUrl = mEntry.url || ''; }
+        else if (mEntry.type === 'apt' && mEntry.readme && mEntry.readme.path) { readmePath = mEntry.readme.path; repoUrl = mEntry.homepage || ''; }
+    }
+    if (!readmePath && tool.path) {
         const norm = tool.path.replace(/\/+$/, '');
-        info = window._readmeIndex.byPath[norm] || window._readmeIndex.byPath[norm + '/'];
-        if (info) repoUrl = info.url || '';
+        const info = window._readmeIndex.byPath[norm] || window._readmeIndex.byPath[norm + '/'];
+        if (info) { readmePath = info.readme_path; repoUrl = repoUrl || info.url || ''; }
     }
-    // For apt static tools, try by package name
-    if (!info && tool.type === 'apt') {
-        info = window._readmeIndex.byPackage[tool.path] || window._readmeIndex.byPackage[tool.name.toLowerCase()];
-        if (info) repoUrl = info.homepage || '';
+    if (!readmePath && type === 'apt') {
+        const info = window._readmeIndex.byPackage[tool.path] || window._readmeIndex.byPackage[lname];
+        if (info) { readmePath = info.readme_path; repoUrl = repoUrl || info.homepage || ''; }
     }
-    // Static-tool fallback: cached README fetched by fetch_static_readmes.py keyed by exact name
-    if (!info) {
-        const byName = window._readmeIndex.byName[tool.name];
-        if (byName) {
-            info = { readme_path: byName.readme_path };
-            repoUrl = byName.repo_url || '';
+    if (!readmePath) {
+        const info = window._readmeIndex.byName[name];
+        if (info) { readmePath = info.readme_path; repoUrl = repoUrl || info.repo_url || ''; }
+    }
+    if (readmePath) chain.push({ kind: 'file', path: readmePath });
+
+    // package/binary guess for the man/help fallbacks
+    const pkg = (tool.path && /^[a-z0-9][a-z0-9+._-]*$/.test(tool.path)) ? tool.path : lname;
+
+    // 2) apt man page (renders locally, fully offline)
+    if (type === 'apt') chain.push({ kind: 'man', package: pkg });
+
+    // 3) <binary> --help — only for tools whose binary actually runs on Kali.
+    //    Windows github binaries (Rubeus, SharpKatz, winPEAS.exe, ...) are skipped;
+    //    their offline docs come from the bundled upstream README or the stub.
+    const cat = (tool.cat || (mEntry && mEntry.category) || '') + ' ' + (mEntry && mEntry.os ? mEntry.os : '');
+    const isWindows = /windows/i.test(cat) || (mEntry && mEntry.os === 'windows');
+    const runnable = ['apt', 'pip', 'pipx', 'gem', 'lib'].indexOf(type) !== -1 || (type === 'github' && !isWindows);
+    if (runnable) chain.push({ kind: 'help', package: pkg });
+
+    // 4) metadata stub — always available, can never fail
+    chain.push({ kind: 'stub' });
+
+    return {
+        name: name, repoUrl: repoUrl, chain: chain,
+        stub: {
+            name: name, desc: tool.desc || (mEntry && mEntry.desc) || '', type: type,
+            path: tool.path || (mEntry && (mEntry.tool_dir || mEntry.package)) || '',
+            cat: tool.cat || (mEntry && mEntry.category) || '',
+            tags: tool.tags || (mEntry && mEntry.tags) || []
         }
-    }
-    if (!info) return '';
-    const repoArg = repoUrl ? `, '${repoUrl.replace(/'/g, "\\'")}'` : '';
-    return `<button class="readme-btn" onclick="event.stopPropagation();showReadme('${tool.name.replace(/'/g, "\\'")}', {kind:'file', path:'${info.readme_path}'}${repoArg})" title="View README">📖</button>`;
+    };
+}
+
+// Synthesize a minimal markdown README from tool metadata (mirrors lib/synth_stub_readmes.py).
+function buildStubMarkdown(s) {
+    const labels = { github: 'GitHub tool / binary', apt: 'APT package', pip: 'Python (pip)', pipx: 'Python (pipx)', gem: 'Ruby gem', lib: 'Library' };
+    const typeLabel = labels[s.type] || (s.type || 'tool');
+    let install;
+    if (s.type === 'apt') install = 'sudo apt install ' + (s.path || s.name);
+    else if (s.type === 'pip' || s.type === 'pipx') install = s.type + ' install ' + s.name;
+    else if (s.type === 'gem') install = 'gem install ' + s.name;
+    else install = 'Bundled on the image at ' + (s.path || 'n/a');
+    const tags = (s.tags || []).join(', ');
+    return '# ' + s.name + '\n\n' + (s.desc || '') +
+        '\n\n## Overview\n\n' +
+        '- **Source type**: ' + typeLabel + '\n' +
+        '- **Location**: `' + (s.path || 'n/a') + '`\n' +
+        '- **Install**: `' + install + '`\n' +
+        '- **Category**: ' + (s.cat || 'n/a') + '\n' +
+        '- **Tags**: ' + (tags || 'n/a') + '\n\n' +
+        '> Offline quick reference. For full usage run the tool with `--help` / `-h` on the box' +
+        (s.type === 'apt' ? ', or `man ' + (s.path || s.name) + '`.' : '.');
+}
+
+// Register a tool's README descriptor; returns its index for use in inline onclick.
+function registerReadme(tool, mEntry) {
+    window._readmeReg.push(buildReadmeChain(tool, mEntry || null));
+    return window._readmeReg.length - 1;
+}
+
+function openReadme(idx) {
+    const desc = window._readmeReg[idx];
+    if (!desc) return;
+    showReadme(desc.name, desc, desc.repoUrl);
+}
+
+// Every tool gets a 📖 button now — the chain always resolves to something offline.
+function readmeButtonFor(tool) {
+    const i = registerReadme(tool, null);
+    return `<button class="readme-btn" onclick="event.stopPropagation();openReadme(${i})" title="View README">📖</button>`;
 }
 
 function renderTools() {
@@ -2314,14 +2391,10 @@ async function loadInstalledTools() {
             div.dataset.desc = entry.desc.toLowerCase();
             div.dataset.type = entry.type;
             div.dataset.cat = cat;
-            let readmeBtn = '';
-            if (t.type === 'github' && t.readme_path) {
-                const src = t.url ? `, '${t.url}'` : '';
-                readmeBtn = `<button class="readme-btn" onclick="event.stopPropagation();showReadme('${entry.name}', {kind:'file', path:'${t.readme_path}'}${src})" title="View README">📖</button>`;
-            } else if (t.type === 'apt' && t.readme && t.readme.kind === 'doc-file') {
-                const src = t.homepage ? `, '${t.homepage}'` : '';
-                readmeBtn = `<button class="readme-btn" onclick="event.stopPropagation();showReadme('${entry.name}', {kind:'file', path:'${t.readme.path}'}${src})" title="View README">📖</button>`;
-            }
+            // Always emit a 📖 button; the offline fallback chain (file→man→help→stub)
+            // guarantees it resolves to something even when no README file is cached.
+            const _ri = registerReadme(entry, t);
+            const readmeBtn = `<button class="readme-btn" onclick="event.stopPropagation();openReadme(${_ri})" title="View README">📖</button>`;
             div.innerHTML = `
                 <span class="tool-type ${typeClass}">${entry.type.toUpperCase()}</span>
                 <span class="tool-name">${entry.name}</span>
@@ -2404,26 +2477,50 @@ async function showReadme(toolName, source, repoUrl) {
         ghLink.style.display = 'none';
     }
     modal.style.display = 'flex';
-    const url = '/api/readme?path=' + encodeURIComponent(source.path);
-    try {
-        const r = await fetch(url);
-        if (!r.ok) {
-            document.getElementById('readme-body').innerHTML = '<em>README not available offline.</em>';
-            return;
-        }
-        const data = await r.json();
+
+    // Normalize input: a full descriptor carries .chain; a legacy single source
+    // ({kind:'file', path}) is wrapped into a one-step chain ending in a stub.
+    let chain, stub;
+    if (source && Array.isArray(source.chain)) {
+        chain = source.chain;
+        stub = source.stub || { name: toolName, desc: '', type: '', path: '', cat: '', tags: [] };
+    } else {
+        chain = [];
+        if (source && source.path) chain.push({ kind: 'file', path: source.path });
+        chain.push({ kind: 'stub' });
+        stub = { name: toolName, desc: '', type: '', path: (source && source.path) || '', cat: '', tags: [] };
+    }
+
+    const body = document.getElementById('readme-body');
+    const renderText = (data) => {
         if (data.format === 'markdown') {
-            document.getElementById('readme-body').innerHTML = renderMarkdown(data.content);
+            body.innerHTML = renderMarkdown(data.content);
         } else {
             const pre = document.createElement('pre');
             pre.textContent = data.content;
-            const body = document.getElementById('readme-body');
             body.innerHTML = '';
             body.appendChild(pre);
         }
-    } catch (e) {
-        document.getElementById('readme-body').innerHTML = '<em>Error: ' + e.message + '</em>';
+    };
+
+    for (const step of chain) {
+        if (step.kind === 'stub') { body.innerHTML = renderMarkdown(buildStubMarkdown(stub)); return; }
+        let url;
+        if (step.kind === 'file') url = '/api/readme?path=' + encodeURIComponent(step.path);
+        else if (step.kind === 'man') url = '/api/readme/manpage?package=' + encodeURIComponent(step.package);
+        else if (step.kind === 'help') url = '/api/readme/help?package=' + encodeURIComponent(step.package);
+        else continue;
+        try {
+            const r = await fetch(url);
+            if (!r.ok) continue;
+            const data = await r.json();
+            if (!data || typeof data.content !== 'string' || !data.content.trim()) continue;
+            renderText(data);
+            return;
+        } catch (e) { continue; }
     }
+    // Safety net — the chain always ends in a stub, so this is normally unreachable.
+    body.innerHTML = renderMarkdown(buildStubMarkdown(stub));
 }
 
 function closeReadme() {

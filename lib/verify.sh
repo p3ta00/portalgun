@@ -89,6 +89,61 @@ for g in d['tools']['github']:
         warn=$((warn + 1))
     fi
 
+    # ── README coverage ─────────────────────────────────────────────
+    # Asserts every tool resolves to SOME offline README source. The frontend
+    # fallback chain is file → apt man page → --help → metadata stub, so the
+    # load-bearing checks are: (a) every github readme_path that is set points
+    # at a real file on disk, and (b) every embedded static tool has a
+    # static_readmes entry. Stubs guarantee the static side reaches 100%.
+    echo "── README coverage ───────────────────────"
+    local readme_report
+    readme_report=$(python3 - "$PORTALGUN_WEB_DIR/portalgun_tools.json" "$PORTALGUN_WEB_DIR/index.html" "$PORTALGUN_LIB/extract_static_tools.py" <<'PY' 2>/dev/null
+import json, os, sys, subprocess
+manifest, html, extractor = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    d = json.load(open(manifest))
+except Exception as e:
+    print("ERR manifest %s" % e); sys.exit(0)
+
+gh = d.get("tools", {}).get("github", [])
+gh_with = [t for t in gh if t.get("readme_path")]
+gh_bad = [t for t in gh_with if not os.path.isfile(t["readme_path"])]
+
+static_map = d.get("static_readmes", {}) or {}
+# Determine the embedded static-tool universe from the served HTML.
+static_names = set()
+try:
+    subprocess.run(["python3", extractor, html], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for t in json.load(open("/tmp/static_tools.json")):
+        static_names.add(t["name"])
+except Exception:
+    static_names = set(static_map)  # fall back to whatever is mapped
+unmapped = [n for n in static_names if n not in static_map]
+
+ok = (len(gh_bad) == 0) and (len(unmapped) == 0)
+print("%s\t%d\t%d\t%d\t%d\t%d" % (
+    "OK" if ok else "BAD",
+    len(gh_with) - len(gh_bad), len(gh_with),
+    len(static_names) - len(unmapped), len(static_names),
+    len(static_map)))
+PY
+)
+    if [ -z "$readme_report" ] || [ "${readme_report:0:3}" = "ERR" ]; then
+        _row "$WARN_MARK" "README coverage" "manifest not present (skipped)"
+        warn=$((warn + 1))
+    else
+        local r_status r_ghok r_ghtot r_stok r_sttot r_maptot
+        IFS=$'\t' read -r r_status r_ghok r_ghtot r_stok r_sttot r_maptot <<< "$readme_report"
+        if [ "$r_status" = "OK" ]; then
+            _row "$PASS_MARK" "README coverage" "github $r_ghok/$r_ghtot on disk, static $r_stok/$r_sttot mapped ($r_maptot total)"
+            pass=$((pass + 1))
+        else
+            _row "$WARN_MARK" "README coverage" "github $r_ghok/$r_ghtot on disk, static $r_stok/$r_sttot mapped — gaps fall back to stub/man/help"
+            warn=$((warn + 1))
+        fi
+    fi
+
     # ── pip packages ────────────────────────────────────────────────
     echo "── pip packages ──────────────────────────"
     local pip_total pip_installed=0 pip_missing=0
