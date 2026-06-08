@@ -34,3 +34,10 @@ data/sliver-armory/
 
 # But DO keep the small catalog index + BApp catalog (offline-required)
 !data/bapp-catalog.json
+
+# Burp Pro license is operator-specific and must NEVER be committed.
+# Each operator imports their own via: portalgun import burp-license <path>
+prefs.xml
+**/license-import/
+**/.java/
+*.userPrefs

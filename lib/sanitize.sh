@@ -23,9 +23,10 @@ sanitize_run() {
 ║    3. Clear /var/log/* + journal                                  ║
 ║    4. apt clean (remove cached .debs)                             ║
 ║    5. Remove /etc/sudoers.d/temp_install if present               ║
-║    6. Clear DHCP leases + NetworkManager connection state         ║
-║    7. Clear /tmp + /var/tmp                                       ║
-║    8. fstrim + zero free space (for qcow2 compression)            ║
+║    6. Remove Burp Pro license (recipients import their own)       ║
+║    7. Clear DHCP leases + NetworkManager connection state         ║
+║    8. Clear /tmp + /var/tmp                                       ║
+║    9. fstrim + zero free space (for qcow2 compression)            ║
 ║                                                                    ║
 ║  After sanitize, run:                                              ║
 ║    sudo shutdown -h now                                            ║
@@ -72,6 +73,16 @@ EOF
 
     print_status "Removing temp_install sudoers..."
     rm -f /etc/sudoers.d/temp_install
+
+    print_status "Removing Burp Pro license (recipients import their own)..."
+    # The license is operator-specific and must never ship in a distributed
+    # clone — strip the staging copy and every user's activated prefs.xml.
+    rm -f /opt/portalgun/burpsuite/license-import/prefs.xml 2>/dev/null || true
+    rm -f /root/.java/.userPrefs/burp/prefs.xml 2>/dev/null || true
+    for u in /home/*; do
+        [ -d "$u" ] || continue
+        rm -f "$u/.java/.userPrefs/burp/prefs.xml" 2>/dev/null || true
+    done
 
     print_status "Clearing NetworkManager state + DHCP leases..."
     rm -rf /var/lib/dhcp/* /var/lib/NetworkManager/* 2>/dev/null || true

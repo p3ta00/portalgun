@@ -236,11 +236,25 @@ PY
         _row "$FAIL_MARK" "BApps cached" "0 — bundle preload failed"
         fail=$((fail + 1))
     fi
-    if [ -f /opt/portalgun/burpsuite/license-import/prefs.xml ]; then
-        _row "$PASS_MARK" "License imported" "license-import/prefs.xml present"
+    # Honest check: confirm the license was actually APPLIED to a user's prefs
+    # (non-empty, looks like a Java preferences map) — not merely staged.
+    local lic_applied=0 lic_staged=0
+    [ -s /opt/portalgun/burpsuite/license-import/prefs.xml ] && lic_staged=1
+    local up
+    for up in /root/.java/.userPrefs/burp/prefs.xml /home/*/.java/.userPrefs/burp/prefs.xml; do
+        if [ -s "$up" ] && grep -qiE '<map' "$up" 2>/dev/null; then
+            lic_applied=1
+            break
+        fi
+    done
+    if [ "$lic_applied" -eq 1 ]; then
+        _row "$PASS_MARK" "License applied" "active in user prefs.xml"
         pass=$((pass + 1))
+    elif [ "$lic_staged" -eq 1 ]; then
+        _row "$WARN_MARK" "License applied" "staged but not applied — run: portalgun import burp-license <path>"
+        warn=$((warn + 1))
     else
-        _row "$WARN_MARK" "License imported" "no prefs.xml — run: portalgun import burp-license <path>"
+        _row "$WARN_MARK" "License applied" "no prefs.xml — run: portalgun import burp-license <path>"
         warn=$((warn + 1))
     fi
 

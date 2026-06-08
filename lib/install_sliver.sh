@@ -90,7 +90,14 @@ stage_bundled_armory() {
             dest="$ext_root/$name"
         fi
         mkdir -p "$dest"
-        if tar xzf "$tarball" -C "$dest" 2>/dev/null; then
+        # Reject tarballs with absolute or parent-traversal members before
+        # extracting (a corrupt/hostile armory tarball could otherwise write
+        # outside $dest as root). --no-same-owner keeps ownership sane.
+        if tar tzf "$tarball" 2>/dev/null | grep -qE '(^|/)\.\.(/|$)|^/'; then
+            _sl_log "Skipping $name — tarball contains unsafe paths"
+            continue
+        fi
+        if tar xzf "$tarball" -C "$dest" --no-same-owner 2>/dev/null; then
             [ "$kind" = "aliases" ] && alias_count=$((alias_count + 1)) || ext_count=$((ext_count + 1))
         fi
     done

@@ -45,17 +45,20 @@ def download(url: str, dest: Path):
     if dest.exists() and dest.stat().st_size > 200:
         return True
     dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(str(dest) + ".tmp")
     try:
         r = subprocess.run(
             ["curl", "-fL", "--retry", "3", "--connect-timeout", "20",
-             "-o", str(dest) + ".tmp", url],
+             "-o", str(tmp), url],
             capture_output=True, timeout=120,
         )
         if r.returncode != 0:
+            tmp.unlink(missing_ok=True)  # don't leave partial downloads behind
             return False
-        os.replace(str(dest) + ".tmp", str(dest))
+        os.replace(str(tmp), str(dest))
         return True
     except Exception:
+        tmp.unlink(missing_ok=True)
         return False
 
 

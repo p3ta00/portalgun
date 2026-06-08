@@ -43,6 +43,15 @@ download_burp_pro() {
     mkdir -p "$BURP_DIR"
     _burp_log "Downloading Burp Suite Pro JAR (this is ~700MB)"
     if curl -fL --retry 3 --connect-timeout 30 -o "$BURP_JAR.new" "$BURP_CDN"; then
+        # Guard against a truncated download or a CDN error page served as 200:
+        # the real JAR is ~700MB, so anything under 100MB is corrupt.
+        local sz
+        sz=$(stat -c %s "$BURP_JAR.new" 2>/dev/null || echo 0)
+        if [ "$sz" -lt 104857600 ]; then
+            _burp_err "Downloaded JAR is only $((sz / 1024 / 1024))MB — corrupt/incomplete, discarding"
+            rm -f "$BURP_JAR.new"
+            return 1
+        fi
         mv "$BURP_JAR.new" "$BURP_JAR"
         _burp_ok "Burp JAR: $BURP_JAR ($(du -h "$BURP_JAR" | cut -f1))"
     else
@@ -72,6 +81,9 @@ apply_burp_license() {
         local target="$home/.java/.userPrefs/burp"
         mkdir -p "$target/pro" "$target/community"
         cp "$BURP_LICENSE_TEMPLATE" "$target/prefs.xml"
+        # The prefs.xml carries the activated license blob — keep it private to
+        # the owning user so it isn't world-readable to other local accounts.
+        chmod 600 "$target/prefs.xml"
         # Pro subdir gets an empty prefs.xml so Burp doesn't crash on first load
         if [ ! -f "$target/pro/prefs.xml" ]; then
             cat > "$target/pro/prefs.xml" <<'EOF'
@@ -280,6 +292,9 @@ EOF
 
 install_burp_pro() {
     mkdir -p "$BURP_DIR" "$BURP_LICENSE_DIR" "$BURP_BAPPS_DIR"
+    # The license-import staging dir holds the operator's activated prefs.xml —
+    # lock it down so the secret isn't listable/readable by other local users.
+    chmod 700 "$BURP_LICENSE_DIR"
     ensure_java_21 || return 1
     download_burp_pro || return 1
     install_burp_launcher
@@ -305,7 +320,14 @@ import_burp_license() {
         _burp_err "Usage: portalgun import burp-license <path-to-prefs.xml>"
         return 1
     fi
+    # Sanity-check the input is a Java preferences XML (a Burp prefs.xml), so a
+    # wrong file doesn't get silently staged and reported as a valid license.
+    if ! head -c 512 "$src" | grep -qiE 'preferences\.dtd|<map'; then
+        _burp_err "Not a Burp prefs.xml (expected a Java preferences XML with a <map> root)"
+        return 1
+    fi
     mkdir -p "$BURP_LICENSE_DIR"
+    chmod 700 "$BURP_LICENSE_DIR"
     cp "$src" "$BURP_LICENSE_TEMPLATE"
     chmod 600 "$BURP_LICENSE_TEMPLATE"
     _burp_ok "License blob staged at $BURP_LICENSE_TEMPLATE"
