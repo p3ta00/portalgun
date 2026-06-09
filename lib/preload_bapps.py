@@ -80,6 +80,10 @@ def handle(entry):
                             f"https://github.com/{full}.git", str(src)],
                            capture_output=True, timeout=180)
         if r.returncode == 0:
+            # Drop .git — we only need the BApp files, not history (saves ~half).
+            gitdir = src / ".git"
+            if gitdir.is_dir():
+                subprocess.run(["rm", "-rf", str(gitdir)], capture_output=True)
             return ("clone", safe)
     except Exception:
         pass
