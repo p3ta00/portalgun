@@ -11,16 +11,27 @@ _progress() {
     echo "PROGRESS:${pct}:${label}"
 }
 
-# Logging helpers (print_status/print_success/print_warning/print_error) live in
-# common.sh. When apply.sh is sourced standalone (install.sh runs
-# `bash -c "source apply.sh && apply_bundle"`) those aren't defined yet, so pull
-# them in; fall back to plain echo if common.sh isn't found.
-if ! declare -F print_status >/dev/null 2>&1; then
+# When apply.sh is sourced standalone (install.sh runs
+# `bash -c "source apply.sh && apply_bundle"`), the portalgun environment and
+# its helper libs aren't loaded, so print_*/registry_*/register_all/
+# sync_web_manifest are all undefined. Bootstrap the env + libs here so the
+# bundle replay (registry backfill + web sync) works regardless of how it's run.
+if ! declare -F print_status >/dev/null 2>&1 || ! declare -F registry_write >/dev/null 2>&1; then
     _apply_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [ -f "$_apply_dir/common.sh" ]; then
+    : "${PORTALGUN_ROOT:=/opt/portalgun}"
+    : "${PORTALGUN_LIB:=$_apply_dir}"
+    : "${PORTALGUN_REGISTRY:=/var/lib/portalgun/registry}"
+    : "${PORTALGUN_LOG_DIR:=/var/log/portalgun}"
+    : "${PORTALGUN_TOOLS_BASE:=/opt/tools}"
+    : "${PORTALGUN_WEB_DIR:=/opt/tools-docs}"
+    export PORTALGUN_ROOT PORTALGUN_LIB PORTALGUN_REGISTRY PORTALGUN_LOG_DIR \
+           PORTALGUN_TOOLS_BASE PORTALGUN_WEB_DIR
+    for _l in common.sh registry.sh register.sh sync_web.sh; do
         # shellcheck source=/dev/null
-        source "$_apply_dir/common.sh"
-    else
+        [ -f "$_apply_dir/$_l" ] && source "$_apply_dir/$_l"
+    done
+    # Last-resort logging shims if common.sh was missing entirely.
+    if ! declare -F print_status >/dev/null 2>&1; then
         print_status()  { echo "[*] $*"; }
         print_success() { echo "[+] $*"; }
         print_warning() { echo "[!] $*"; }
