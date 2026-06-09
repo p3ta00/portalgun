@@ -96,11 +96,19 @@ Do EXACTLY this, reporting progress, and return the schema at the end:
      until ssh "$JUMP" "sshpass -p $VM_PASS ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 $VM_USER@$VM_IP echo ok" 2>/dev/null | grep -q ok; do sleep 5; done
    Clear stale host keys on both ends for $VM_IP if SSH complains.
 
-2. RE-EXPAND THE DISK. snapshot1 predates a disk expansion, so after revert the
-   qcow2 is 160G virtual but the partition is ~80G. As root on the VM:
-     apt-get install -y -q cloud-guest-utils >/dev/null 2>&1 || true
-     growpart /dev/vda 1 ; partx -u /dev/vda 2>/dev/null || partprobe /dev/vda 2>/dev/null || true ; resize2fs /dev/vda1
-   Confirm 'df -h /' shows ~150G+. Record disk_gb.
+2. RE-EXPAND THE DISK. The internal snapshot restores the PRE-expansion 80G
+   qcow2 geometry, so you must grow it in THREE steps:
+   (a) HOST-level: grow the qcow2 virtual disk to 160G (the VM is running, so
+       use blockresize, NOT qemu-img which can't open the locked image):
+         ssh "$JUMP" "sudo virsh blockresize $VM_NAME vda 160G"
+       Verify the guest now sees a 160G vda: on the VM 'lsblk /dev/vda' shows ~160G.
+   (b) GUEST partition: grow vda1 to fill the disk:
+         apt-get install -y -q cloud-guest-utils >/dev/null 2>&1 || true
+         growpart /dev/vda 1 ; partx -u /dev/vda 2>/dev/null || partprobe /dev/vda 2>/dev/null || true
+   (c) GUEST filesystem: resize2fs /dev/vda1
+   Confirm 'df -h /' shows ~150G+. Record disk_gb. If it still shows ~80G, the
+   wheelhouse/apt-mirror phases will run out of disk — do NOT proceed; report
+   completed=false with a clear note so the disk step can be fixed.
 
 3. DEPLOY the repo to the VM. First push your SSH key so rsync/ProxyJump works:
      pubkey=$(cat ~/.ssh/id_ed25519.pub 2>/dev/null || cat ~/.ssh/id_rsa.pub 2>/dev/null)
