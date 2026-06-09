@@ -1438,6 +1438,10 @@
         "target": "/opt/tools/windows/ad"
       },
       {
+        "url": "https://github.com/depthsecurity/RelayKing-Depth.git",
+        "target": "/opt/tools/windows/ad"
+      },
+      {
         "url": "https://github.com/lyft/cartography.git",
         "target": "/opt/tools/cloud/multi"
       },
