@@ -36,6 +36,10 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Export the repo dir so child invocations (notably the Phase 10b
+# `sudo -E bash -c "... apply_bundle ..."`) resolve $PORTALGUN_REPO_DIR/configs
+# correctly and apply the p3ta dotfiles instead of skipping that phase.
+export PORTALGUN_REPO_DIR="${PORTALGUN_REPO_DIR:-$SCRIPT_DIR}"
 LOG_FILE="$SCRIPT_DIR/master_install.log"
 DEBUG_LOG="$SCRIPT_DIR/master_debug.log"
 
@@ -115,7 +119,10 @@ echo "  6. BloodHound CE (Docker, port 1338, seed-restored)"
 echo "  7. Firefox profile (extensions, saved logins) from seed"
 echo "  8. portalgun (tool installer + symlink manager + VM clone helper)"
 echo ""
-print_warning "Press ENTER to continue or Ctrl+C to abort..."
+# Interactive confirmation prompt — use the status glyph ([*]) not the warning
+# glyph ([!]); it is a prompt, not a defect, and the log analyzer counts [!] as
+# a warning.
+print_status "Press ENTER to continue or Ctrl+C to abort..."
 read -r
 
 # Serialize installs — two concurrent runs both drive apt and write the
@@ -220,6 +227,22 @@ ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
 # FZF / Zoxide / Starship / Yazi / Lazygit each hit GitHub releases or third-party
 # install scripts. These can fail transiently (rate limit, DNS) — treat them as
 # non-fatal so the rest of the install pipeline still runs to completion.
+#
+# GitHub's *API* (api.github.com) is aggressively rate-limited for unauthenticated
+# callers (60 req/hr/IP), which is why fetching the "latest" version via the API
+# returns nothing during bulk installs. The release *download* host
+# (objects.githubusercontent.com, reached via github.com/.../releases/...) is NOT
+# API-rate-limited. So resolve the latest tag from the /releases/latest HTTP
+# redirect (a 302 to /releases/tag/<tag>, no API call) and download the asset
+# directly. Same pattern already used by lib/build_sliver_armory.sh.
+# Resolve the latest release tag for owner/repo via the releases/latest redirect.
+# Echoes the tag (e.g. v0.9.9) or nothing on failure. No api.github.com call.
+gh_latest_tag() {
+    local repo="$1" loc
+    loc=$(curl -fsS -o /dev/null -w '%{redirect_url}' --max-time 30 \
+              "https://github.com/${repo}/releases/latest" 2>/dev/null)
+    [ -n "$loc" ] && printf '%s\n' "${loc##*/tag/}"
+}
 set +e
 # FZF
 if [ ! -d "$HOME/.fzf" ]; then
@@ -229,12 +252,23 @@ if [ ! -d "$HOME/.fzf" ]; then
     [ -d "$HOME/.fzf" ] && run_quiet ~/.fzf/install --all --no-bash --no-fish || true
 fi
 
-# Zoxide
+# Zoxide — direct release-asset download (no api.github.com; not rate-limited).
 if [ ! -f "$HOME/.local/bin/zoxide" ]; then
     print_status "Installing Zoxide..."
     mkdir -p ~/.local/bin
-    run_quiet bash -c "curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash" || \
+    ZOXIDE_TAG=$(gh_latest_tag ajeetdsouza/zoxide)
+    ZOXIDE_VER="${ZOXIDE_TAG#v}"
+    if [ -n "$ZOXIDE_VER" ] && \
+       curl -fsSL --max-time 120 -o /tmp/zoxide.tar.gz \
+            "https://github.com/ajeetdsouza/zoxide/releases/download/${ZOXIDE_TAG}/zoxide-${ZOXIDE_VER}-x86_64-unknown-linux-musl.tar.gz" && \
+       tar xzf /tmp/zoxide.tar.gz -C /tmp zoxide 2>/dev/null && \
+       mv /tmp/zoxide ~/.local/bin/zoxide; then
+        chmod +x ~/.local/bin/zoxide
+        rm -f /tmp/zoxide.tar.gz
+    else
+        rm -f /tmp/zoxide.tar.gz
         print_warning "Zoxide install failed (likely GitHub rate-limited) — skipping"
+    fi
 fi
 
 # Starship
@@ -247,31 +281,35 @@ set -e
 
 # Yazi / Lazygit / Tealdeer — all hit GitHub releases. Treat as non-fatal.
 set +e
-# Yazi
+# Yazi — stable asset name, so the /latest/download/ redirect works with no API.
 if [ ! -f "$HOME/.local/bin/yazi" ]; then
     print_status "Installing Yazi..."
-    YAZI_URL=$(curl -s https://api.github.com/repos/sxyazi/yazi/releases/latest | jq -r '.assets[] | select(.name == "yazi-x86_64-unknown-linux-gnu.zip") | .browser_download_url' 2>/dev/null)
-    if [ -n "$YAZI_URL" ] && [ "$YAZI_URL" != "null" ]; then
-        cd /tmp && curl -sLO "$YAZI_URL" && unzip -oq yazi-x86_64-unknown-linux-gnu.zip && \
-            mv yazi-x86_64-unknown-linux-gnu/yazi ~/.local/bin/ && \
-            mv yazi-x86_64-unknown-linux-gnu/ya ~/.local/bin/ && \
-            rm -rf yazi-x86_64-unknown-linux-gnu*
+    if cd /tmp && curl -fsSL --max-time 180 -O \
+           "https://github.com/sxyazi/yazi/releases/latest/download/yazi-x86_64-unknown-linux-gnu.zip" && \
+       unzip -oq yazi-x86_64-unknown-linux-gnu.zip && \
+       mv yazi-x86_64-unknown-linux-gnu/yazi ~/.local/bin/ && \
+       mv yazi-x86_64-unknown-linux-gnu/ya ~/.local/bin/; then
+        rm -rf /tmp/yazi-x86_64-unknown-linux-gnu*
     else
-        print_warning "Yazi: GitHub API returned no URL (rate-limited) — skipping"
+        rm -rf /tmp/yazi-x86_64-unknown-linux-gnu*
+        print_warning "Yazi download failed — skipping"
     fi
 fi
 
-# Lazygit
+# Lazygit — version is in the asset name; resolve the tag via redirect (no API).
 if [ ! -f "$HOME/.local/bin/lazygit" ]; then
     print_status "Installing Lazygit..."
-    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | jq -r .tag_name 2>/dev/null | tr -d v)
-    if [ -n "$LAZYGIT_VERSION" ] && [ "$LAZYGIT_VERSION" != "null" ]; then
-        cd /tmp && curl -sLO "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" && \
-            tar xzf "lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" lazygit && \
-            mv lazygit ~/.local/bin/ && \
-            rm -f "lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
+    LAZYGIT_TAG=$(gh_latest_tag jesseduffield/lazygit)
+    LAZYGIT_VERSION="${LAZYGIT_TAG#v}"
+    if [ -n "$LAZYGIT_VERSION" ] && \
+       cd /tmp && curl -fsSL --max-time 120 -O \
+           "https://github.com/jesseduffield/lazygit/releases/download/${LAZYGIT_TAG}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" && \
+       tar xzf "lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" lazygit && \
+       mv lazygit ~/.local/bin/; then
+        rm -f "/tmp/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
     else
-        print_warning "Lazygit: GitHub API returned no version (rate-limited) — skipping"
+        rm -f "/tmp/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" 2>/dev/null
+        print_warning "Lazygit download failed — skipping"
     fi
 fi
 
@@ -289,15 +327,17 @@ set -e
 
 # Zellij / TPM / Nerd Font — non-fatal on network/rate-limit failures
 set +e
-# Zellij
+# Zellij — stable asset name, so the /latest/download/ redirect works with no API.
 if [ ! -f "$HOME/.local/bin/zellij" ]; then
     print_status "Installing Zellij..."
-    ZELLIJ_URL=$(curl -s https://api.github.com/repos/zellij-org/zellij/releases/latest | jq -r '.assets[] | select(.name | test("zellij-x86_64-unknown-linux-musl.tar.gz$")) | .browser_download_url' 2>/dev/null)
-    if [ -n "$ZELLIJ_URL" ] && [ "$ZELLIJ_URL" != "null" ]; then
-        cd /tmp && curl -sLO "$ZELLIJ_URL" && tar xzf zellij-x86_64-unknown-linux-musl.tar.gz && \
-            mv zellij ~/.local/bin/ && rm -f zellij-x86_64-unknown-linux-musl.tar.gz
+    if cd /tmp && curl -fsSL --max-time 180 -O \
+           "https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz" && \
+       tar xzf zellij-x86_64-unknown-linux-musl.tar.gz && \
+       mv zellij ~/.local/bin/; then
+        rm -f /tmp/zellij-x86_64-unknown-linux-musl.tar.gz
     else
-        print_warning "Zellij: GitHub API returned no URL — skipping"
+        rm -f /tmp/zellij-x86_64-unknown-linux-musl.tar.gz
+        print_warning "Zellij download failed — skipping"
     fi
 fi
 
@@ -376,7 +416,7 @@ if [ -f "$SCRIPT_DIR/installers/install_tools.sh" ]; then
         bash "$SCRIPT_DIR/installers/install_tools.sh" || print_warning "Some tools may have failed"
     else
         # Show progress - filter for key status lines
-        bash "$SCRIPT_DIR/installers/install_tools.sh" 2>&1 | tee -a "$LOG_FILE" | grep --line-buffered -E "^\[.\]|FAILED|OK$|Installed:|Missing:|Batch|Retrying" || true
+        bash "$SCRIPT_DIR/installers/install_tools.sh" 2>&1 | tee -a "$LOG_FILE" | grep --line-buffered -E "^\[.\]|FAILED|OK$|Installed:|To install:|Batch|Retrying" || true
     fi
     print_success "Kali tools installed"
 else

@@ -462,7 +462,25 @@ apply_bundle() {
     _progress 96 "Phase 5: Applying p3ta dotfiles..."
     print_status "Phase 5: dotfiles (p3ta default config)"
 
-    local CONFIGS_DIR="$PORTALGUN_REPO_DIR/configs"
+    # Locate the configs/ dir robustly. apply_bundle is sometimes invoked via
+    # `sudo -E bash -c` (install.sh Phase 10b) where PORTALGUN_REPO_DIR may not be
+    # exported, leaving "$PORTALGUN_REPO_DIR/configs" -> "/configs" (missing).
+    # Fall back to the repo dir derived from the resolved bundle file, then to the
+    # known clone locations, so dotfiles are applied instead of being skipped.
+    local CONFIGS_DIR=""
+    local _cfg_cand
+    for _cfg_cand in \
+        "${PORTALGUN_REPO_DIR:+$PORTALGUN_REPO_DIR/configs}" \
+        "$(dirname "$bundle_file")/configs" \
+        "/opt/portalgun/configs" \
+        "/home/${SUDO_USER:-kali}/portalgun/configs" \
+        "/root/portalgun/configs"; do
+        [ -n "$_cfg_cand" ] || continue
+        if [ -d "$_cfg_cand" ]; then
+            CONFIGS_DIR="$_cfg_cand"
+            break
+        fi
+    done
 
     # Apply to both root and the sudo user (kali or whoever invoked sudo)
     local FIRST_USER="${SUDO_USER:-kali}"
@@ -471,32 +489,26 @@ apply_bundle() {
     # Install Rust terminal tools via direct binary download (most reliable)
     # cargo-binstall is unreliable in this environment, so download from GitHub releases directly
 
-    # Zellij
+    # Zellij — stable asset name, so /latest/download/ works with no api.github.com.
     if ! command -v zellij >/dev/null 2>&1; then
         _progress 96 "Phase 5: Installing zellij..."
-        local ZELLIJ_VER
-        ZELLIJ_VER=$(curl -s https://api.github.com/repos/zellij-org/zellij/releases/latest | grep tag_name | cut -d'"' -f4 2>/dev/null || echo "v0.44.3")
-        if curl -sL "https://github.com/zellij-org/zellij/releases/download/${ZELLIJ_VER}/zellij-x86_64-unknown-linux-musl.tar.gz" | tar xz -C /usr/local/bin/ 2>/dev/null; then
-            print_success "  zellij $ZELLIJ_VER installed"
+        if curl -fsSL --max-time 180 "https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz" | tar xz -C /usr/local/bin/ 2>/dev/null; then
+            print_success "  zellij installed"
         else
             print_warning "  zellij download failed"
         fi
     fi
 
-    # Yazi + ya
+    # Yazi + ya — stable asset name, so /latest/download/ works with no API call.
     if ! command -v yazi >/dev/null 2>&1; then
         _progress 97 "Phase 5: Installing yazi..."
-        local YAZI_VER
-        YAZI_VER=$(curl -s https://api.github.com/repos/sxyazi/yazi/releases/latest | grep tag_name | cut -d'"' -f4 2>/dev/null)
-        if [ -n "$YAZI_VER" ]; then
-            curl -sL "https://github.com/sxyazi/yazi/releases/download/${YAZI_VER}/yazi-x86_64-unknown-linux-gnu.zip" -o /tmp/yazi.zip 2>/dev/null
-            if (cd /tmp && unzip -oq yazi.zip && mv yazi-x86_64-unknown-linux-gnu/yazi /usr/local/bin/ && mv yazi-x86_64-unknown-linux-gnu/ya /usr/local/bin/) 2>/dev/null; then
-                print_success "  yazi $YAZI_VER installed"
-            else
-                print_warning "  yazi install failed"
-            fi
-            rm -rf /tmp/yazi.zip /tmp/yazi-x86_64-unknown-linux-gnu
+        if curl -fsSL --max-time 180 "https://github.com/sxyazi/yazi/releases/latest/download/yazi-x86_64-unknown-linux-gnu.zip" -o /tmp/yazi.zip 2>/dev/null && \
+           (cd /tmp && unzip -oq yazi.zip && mv yazi-x86_64-unknown-linux-gnu/yazi /usr/local/bin/ && mv yazi-x86_64-unknown-linux-gnu/ya /usr/local/bin/) 2>/dev/null; then
+            print_success "  yazi installed"
+        else
+            print_warning "  yazi install failed"
         fi
+        rm -rf /tmp/yazi.zip /tmp/yazi-x86_64-unknown-linux-gnu
     fi
 
     # Lazydocker

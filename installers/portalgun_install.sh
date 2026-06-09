@@ -41,6 +41,10 @@ rsync -a --delete "$SRC_ROOT/bin/"        "$INSTALL_ROOT/bin/"
 rsync -a --delete "$SRC_ROOT/lib/"        "$INSTALL_ROOT/lib/"
 rsync -a --delete "$SRC_ROOT/completion/" "$INSTALL_ROOT/completion/"
 rsync -a --delete "$SRC_ROOT/web/"        "$INSTALL_ROOT/web/"
+# Ship configs/ alongside the CLI so apply_bundle's dotfiles phase can find them
+# at $INSTALL_ROOT/configs even when invoked via `sudo -E bash -c` (where
+# PORTALGUN_REPO_DIR may be unset and "$PORTALGUN_REPO_DIR/configs" -> "/configs").
+[ -d "$SRC_ROOT/configs" ] && rsync -a --delete "$SRC_ROOT/configs/" "$INSTALL_ROOT/configs/"
 mkdir -p "$INSTALL_ROOT/data"
 [ -f "$SRC_ROOT/data/bapp-catalog.json" ] && \
     cp "$SRC_ROOT/data/bapp-catalog.json" "$INSTALL_ROOT/data/bapp-catalog.json"

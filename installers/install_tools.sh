@@ -109,7 +109,10 @@ done < "$PACKAGES_FILE"
 printf "\r%-80s\n" ""
 
 echo -e "${GREEN}[+]${NC} Installed:   ${CYAN}$INSTALLED_COUNT${NC} / $TOTAL_IN_FILE"
-echo -e "${YELLOW}[!]${NC} Missing:     ${CYAN}${#TO_INSTALL[@]}${NC} / $TOTAL_IN_FILE"
+# Pre-install inventory of packages queued for this run — informational, not a
+# defect. Use the status glyph ([*]) so the install-log analyzer's [!] warning
+# regex doesn't count it (these all get installed; final verify reports 100%).
+echo -e "${BLUE}[*]${NC} To install:  ${CYAN}${#TO_INSTALL[@]}${NC} / $TOTAL_IN_FILE"
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
