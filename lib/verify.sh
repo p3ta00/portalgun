@@ -20,6 +20,13 @@ verify_install() {
     local WARN_MARK="\033[1;33m!\033[0m"
     local FAIL_MARK="\033[0;31m✗\033[0m"
     _row() { printf '  %b %-32s %s\n' "$1" "$2" "$3"; }
+    # Notice tier: an expected post-install operator action (e.g. import a Burp
+    # license, build the offline armory while online). These are NOT install
+    # defects or false positives — they reflect a real not-yet-done step — so we
+    # surface the actionable message but do NOT count them as warnings (which
+    # would otherwise make a healthy install perpetually report warn>0).
+    local NOTE_MARK="\033[0;36mi\033[0m"
+    _note() { printf '  %b %-32s %s\n' "$NOTE_MARK" "$1" "$2"; }
 
     # ── APT packages ────────────────────────────────────────────────
     echo "── APT packages ──────────────────────────"
@@ -178,15 +185,35 @@ PY
     local cargo_total cargo_installed=0 cargo_missing=0
     cargo_total=$(python3 -c "import json;d=json.load(open('$bundle'));print(len(d['tools'].get('cargo',[])))")
     # Crate name ≠ binary name (e.g. cargo-update ships cargo-install-update).
-    # Use `cargo install --list` for the source of truth.
+    # Use `cargo install --list` for the source of truth, but `cargo install`
+    # in apply.sh may land crates in the invoking user's CARGO_HOME
+    # (/home/<user>/.cargo/bin) rather than root's — so probe every plausible
+    # cargo bin dir, not just root's.
+    local cargo_bindirs=(/root/.cargo/bin /usr/local/cargo/bin)
+    local _ch
+    for _ch in /home/*/.cargo/bin; do [ -d "$_ch" ] && cargo_bindirs+=("$_ch"); done
+    [ -n "${CARGO_HOME:-}" ] && [ -d "$CARGO_HOME/bin" ] && cargo_bindirs+=("$CARGO_HOME/bin")
+    # Known crate→binary aliases where the shipped binary name differs from the
+    # crate name (verify on binary presence across all cargo bin dirs).
+    declare -A cargo_bin_alias=( [cargo-update]="cargo-install-update" )
     local cargo_list
     cargo_list=$(cargo install --list 2>/dev/null | grep -E '^[a-z]' | awk -F: '{print $1}' | awk '{print $1}' | sort -u)
+    _cargo_bin_present() {
+        # $1 = binary name; true if found in any cargo bin dir or on PATH
+        local bin="$1" d
+        command -v "$bin" >/dev/null 2>&1 && return 0
+        for d in "${cargo_bindirs[@]}"; do
+            [ -x "$d/$bin" ] && return 0
+            ls "$d/$bin"* >/dev/null 2>&1 && return 0
+        done
+        return 1
+    }
     while IFS= read -r crate; do
         [ -z "$crate" ] && continue
+        local crate_bin="${cargo_bin_alias[$crate]:-$crate}"
         if echo "$cargo_list" | grep -qx "$crate" || \
-           [ -x "/root/.cargo/bin/$crate" ] || \
-           command -v "$crate" >/dev/null 2>&1 || \
-           ls /root/.cargo/bin/$crate* >/dev/null 2>&1; then
+           _cargo_bin_present "$crate" || \
+           _cargo_bin_present "$crate_bin"; then
             cargo_installed=$((cargo_installed + 1))
         else
             cargo_missing=$((cargo_missing + 1))
@@ -290,8 +317,9 @@ PY
         _row "$WARN_MARK" "Burp license" "key staged but users not symlinked — run: portalgun import burp-license <file>"
         warn=$((warn + 1))
     else
-        _row "$WARN_MARK" "Burp license" "no license — upload prefs.xml (Admin → Burp License) or: portalgun import burp-license <file>"
-        warn=$((warn + 1))
+        # Expected post-install: a license is imported by the operator, not by
+        # the installer. Surface as a notice, not a warning.
+        _note "Burp license" "no license — upload prefs.xml (Admin → Burp License) or: portalgun import burp-license <file>"
     fi
 
     # ── Sliver ───────────────────────────────────────────────────────
@@ -404,8 +432,10 @@ PY
         _row "$WARN_MARK" "Offline armory" "$armory_pkgs pkgs indexed but server down/unconfigured — run: portalgun build-sliver-armory"
         warn=$((warn + 1))
     else
-        _row "$WARN_MARK" "Offline armory" "not built — run (online): portalgun build-sliver-armory"
-        warn=$((warn + 1))
+        # Expected post-install: the offline armory bundle is built on demand
+        # (requires internet). Sliver server/client/extensions are already
+        # present, so this is an operator action, not an install failure.
+        _note "Offline armory" "not built — run (online): portalgun build-sliver-armory"
     fi
 
     # ── Web UI ───────────────────────────────────────────────────────

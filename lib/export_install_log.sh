@@ -47,7 +47,11 @@ err_patterns = [
     ("build-fail",     re.compile(r"\bbuild failed\b|compilation terminated|cannot find -l|undefined reference to|configure: error|\bld: cannot\b", re.I)),
     ("pip-conflict",   re.compile(r"^ERROR: Cannot install|conflicting dependencies|ResolutionImpossible|No matching distribution found|ERROR: pip.*conflict")),
     ("cargo-fail",     re.compile(r"error\[E\d+\]|aborting due to .* error|cargo install failed|error: failed to compile|error: package .* not found")),
-    ("python-trace",   re.compile(r"^Traceback \(most recent call last\)|^\s+File \".*\", line \d+", re.M)),
+    # Only the Traceback header is a reliable error signal. A bare
+    # '  File "...", line N' line also appears in benign output — notably
+    # Python SyntaxWarnings from bundled third-party tools (cupp, commix, ...)
+    # and -v/-W output — so matching it alone produced false-positive errors.
+    ("python-trace",   re.compile(r"^Traceback \(most recent call last\)")),
     ("permission",     re.compile(r"Permission denied(?!\.)|EACCES|operation not permitted", re.I)),
     ("network",        re.compile(r"Could not resolve host|Connection refused|TLS handshake|Temporary failure in name resolution|curl: \(\d+\)")),
     ("portalgun-err",  re.compile(r"^\x1b\[[\d;]+m\[-\]|^\[!\] .*(?:fail|error|broken)", re.I)),
@@ -55,20 +59,55 @@ err_patterns = [
 # Match the colored "[!]" warning glyph used by common.sh, and bare WARNING:
 warn_re = re.compile(r"^\x1b\[[\d;]+m\[!\]|^\[WARNING\]|^WARNING:")
 
+# Benign / cosmetic warnings emitted by third-party tooling (apt, dpkg, grub,
+# cargo, docker-compose, openmpi, ca-certificates, python upstream code) that
+# are NOT portalgun defects and reflect reality (no kernel headers in a VM,
+# apt's standard CLI-stability notice, idempotent re-run volume notices, etc.).
+# These are excluded from the warning count so a healthy install reports zero.
+# Keep this list specific so a genuine new warning is never masked.
+benign_warn_res = [
+    re.compile(r"apt does not have a stable CLI interface"),
+    re.compile(r"No kernel headers were found, skipping module build"),
+    re.compile(r"be sure to add .*\.cargo/bin to your PATH"),
+    re.compile(r"os-prober will not be executed"),
+    re.compile(r"You appear to have cloned an empty repository"),
+    re.compile(r"unable to delete old directory .*: Directory not empty"),
+    re.compile(r"invalid escape sequence"),                      # SyntaxWarning
+    re.compile(r"volume .* already exists but was not created by Docker Compose"),
+    re.compile(r"update-alternatives: warning: skip creation of"),
+    re.compile(r"rehash: warning: skipping .*does not contain exactly one certificate"),
+    # pip's post-install resolver inconsistency notices (non-fatal; the bundle
+    # is a deliberately under-constrained complete freeze). Header + each
+    # "requires X but you have Y" line.
+    re.compile(r"pip's dependency resolver does not currently take into account"),
+    re.compile(r"^\S+ \S+ requires .*, but you have \S+ \S+\.$"),
+]
+def _is_benign_warn(s):
+    return any(rx.search(s) for rx in benign_warn_res)
+
 cur_phase = "preamble"
 by_phase = {}
 counts = {k: 0 for k, _ in err_patterns}
 counts["warning"] = 0
 samples = {k: [] for k, _ in err_patterns}
 
+# This analyzer prints matched samples to stdout (e.g. "[install-log] ..." and
+# "  L123: ERROR: Cannot install ...") which can be tee'd back into a later
+# master log. Skip our own echoed output so a previous run's reported errors are
+# not re-counted as new errors on the next run (the observed errors=7 vs 4 drift
+# where 3 were the analyzer's own appended lines).
+self_echo_re = re.compile(r"^\[install-log\]|^\s+L\d+:\s")
+
 for i, raw in enumerate(lines):
     line = raw.rstrip("\n")
+    if self_echo_re.search(line):
+        continue
     if phase_re.search(line):
         cur_phase = phase_re.search(line).group(0).strip(":") + " " + line[phase_re.search(line).end():].strip()
         cur_phase = cur_phase[:80]
     pinfo = by_phase.setdefault(cur_phase, {"errors": 0, "warnings": 0, "lines": 0, "first_error": None})
     pinfo["lines"] += 1
-    if warn_re.search(line):
+    if warn_re.search(line) and not _is_benign_warn(line):
         counts["warning"] += 1
         pinfo["warnings"] += 1
     for key, rx in err_patterns:

@@ -349,7 +349,16 @@ apply_bundle() {
             local retry_done=0 retry_ok=0 retry_fail=0
             for spec in "${missing_pip[@]}"; do
                 retry_done=$((retry_done + 1))
-                if "$VENV_PIP" install --quiet --prefer-binary "$spec" >/dev/null 2>>"$pip_fail_log"; then
+                # Try --no-deps first: the bundle is a COMPLETE freeze, so every
+                # transitive dep is already its own line. Installing with deps
+                # makes pip's resolver emit "requires X but you have Y" notices
+                # for the bundle's deliberately-pinned (and mutually under-
+                # constrained) versions — noise that pollutes pip_failures.log
+                # without changing the installed set. Only if --no-deps fails
+                # (a genuinely-missing dep not in the freeze) do we fall back to
+                # a full resolve.
+                if "$VENV_PIP" install --quiet --prefer-binary --no-deps "$spec" >/dev/null 2>>"$pip_fail_log" \
+                   || "$VENV_PIP" install --quiet --prefer-binary "$spec" >/dev/null 2>>"$pip_fail_log"; then
                     retry_ok=$((retry_ok + 1))
                 else
                     echo "  $spec" >> "$pip_fail_log"
