@@ -90,7 +90,7 @@ openpyxl
 pyyaml
 toml
 jsonschema
-tabulate
+tabulate>=0.10.0
 rich
 click
 typer

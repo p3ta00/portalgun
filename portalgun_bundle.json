@@ -2341,7 +2341,7 @@
       "sympy==1.14.0",
       "syslog-rfc5424-formatter==1.2.3",
       "tables==3.10.2",
-      "tabulate",
+      "tabulate>=0.10.0",
       "tempita==0.6.0",
       "tempora==5.7.0",
       "termcolor==2.4.0",

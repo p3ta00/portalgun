@@ -288,6 +288,13 @@ apply_bundle() {
         _progress 81 "Phase 3: Setting up /opt/pentest-venv..."
         print_status "Phase 3: pip packages ($pip_count) → $VENV"
 
+        # install.sh invokes apply_bundle via `sudo -E`, so $HOME stays the
+        # invoking user's (e.g. /home/kali). Root can't write ~/.cache/pip there,
+        # so pip prints "cache disabled" and rebuilds/refetches everything. Point
+        # the cache at a root-owned dir so caching works (and the warning stops).
+        export PIP_CACHE_DIR="${PIP_CACHE_DIR:-/var/cache/portalgun/pip}"
+        mkdir -p "$PIP_CACHE_DIR" 2>/dev/null || true
+
         # Create venv if needed
         if [ ! -f "$VENV_PIP" ]; then
             print_status "  Creating venv at $VENV..."
@@ -380,6 +387,16 @@ apply_bundle() {
     if [ "$cargo_count" -gt 0 ] && [ "$run_cargo" -eq 1 ]; then
         _progress 96 "Phase 4: Installing cargo tools..."
         print_status "Phase 4: cargo packages ($cargo_count)"
+
+        # apply_bundle runs as `sudo bash -c "..."` where root's PATH usually
+        # omits the cargo bin dirs, so a bare `command -v cargo` reports it
+        # missing and the whole phase is skipped (cargo crates → 0 installed).
+        # Add the standard rustup/apt cargo locations to PATH before probing.
+        local _cargo_home="${CARGO_HOME:-$HOME/.cargo}" _cdir
+        for _cdir in "$_cargo_home/bin" /root/.cargo/bin /usr/local/cargo/bin; do
+            [ -x "$_cdir/cargo" ] && case ":$PATH:" in *":$_cdir:"*) ;; *) PATH="$_cdir:$PATH" ;; esac
+        done
+        export PATH
 
         if ! command -v cargo >/dev/null 2>&1; then
             print_warning "cargo not found — skipping cargo phase"
