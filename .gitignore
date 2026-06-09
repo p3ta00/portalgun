@@ -45,3 +45,5 @@ prefs.xml
 **/.java/
 **/.BurpSuite/
 *.userPrefs
+# Bundled armory-server binary (re-fetch from sliverarmory/private-armory release)
+data/sliver-armory-bin/

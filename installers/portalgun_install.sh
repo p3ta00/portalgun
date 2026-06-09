@@ -54,6 +54,9 @@ fi
 if [ -d "$SRC_ROOT/data/bapp-jars" ]; then
     rsync -a "$SRC_ROOT/data/bapp-jars/" "$INSTALL_ROOT/data/bapp-jars/"
 fi
+if [ -d "$SRC_ROOT/data/sliver-armory-bin" ]; then
+    rsync -a "$SRC_ROOT/data/sliver-armory-bin/" "$INSTALL_ROOT/data/sliver-armory-bin/"
+fi
 
 chmod +x "$INSTALL_ROOT/bin/portalgun" "$INSTALL_ROOT/bin/portalgun-firstboot.sh"
 chmod +x "$INSTALL_ROOT/lib/"*.py 2>/dev/null || true

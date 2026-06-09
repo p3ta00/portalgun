@@ -24,18 +24,29 @@ _sa_log() { printf '\033[0;34m[*]\033[0m %s\n' "$*"; }
 _sa_ok()  { printf '\033[0;32m[+]\033[0m %s\n' "$*"; }
 _sa_err() { printf '\033[0;31m[!]\033[0m %s\n' "$*" >&2; }
 
-# Get the armory-server binary: bundled copy first (offline), else download.
+# Get the armory-server binary: bundled copy first (fully offline), else a
+# DIRECT release-asset download (no GitHub API → no rate-limit 403 cascade).
 ensure_armory_server() {
     [ -x "$ARMORY_BIN" ] && return 0
     mkdir -p "$(dirname "$ARMORY_BIN")"
-    if [ -f "$ARMORY_DIR/armory-server.bundled" ]; then
-        cp "$ARMORY_DIR/armory-server.bundled" "$ARMORY_BIN" && chmod +x "$ARMORY_BIN" && return 0
+    # Bundled binary shipped in the image (preferred — offline, no download).
+    local b
+    for b in "$ARMORY_DIR/armory-server.bundled" \
+             /opt/portalgun/data/sliver-armory-bin/armory-server_linux-amd64 \
+             "$(dirname "${BASH_SOURCE[0]}")/../data/sliver-armory-bin/armory-server_linux-amd64"; do
+        if [ -f "$b" ]; then
+            cp "$b" "$ARMORY_BIN" && chmod +x "$ARMORY_BIN" && return 0
+        fi
+    done
+    # Fallback: download the pinned release asset DIRECTLY (objects.githubusercontent
+    # is not rate-limited like api.github.com). No API call.
+    local url="https://github.com/sliverarmory/private-armory/releases/download/v0.0.1/armory-server_linux-amd64"
+    if curl -fsSL --max-time 180 -o "$ARMORY_BIN" "$url"; then
+        chmod +x "$ARMORY_BIN"
+        return 0
     fi
-    local url
-    url=$(curl -s --max-time 20 https://api.github.com/repos/sliverarmory/private-armory/releases/latest \
-          | python3 -c "import json,sys;print([a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if a['name']=='armory-server_linux-amd64'][0])" 2>/dev/null)
-    [ -z "$url" ] && { _sa_err "could not resolve armory-server download URL"; return 1; }
-    curl -fsSL --max-time 180 -o "$ARMORY_BIN" "$url" && chmod +x "$ARMORY_BIN"
+    _sa_err "armory-server unavailable (no bundled binary and direct download failed)"
+    return 1
 }
 
 # Stage bundled package tarballs named by their INTERNAL manifest command_name
