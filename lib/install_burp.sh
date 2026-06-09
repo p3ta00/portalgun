@@ -208,9 +208,28 @@ if len(filtered) < 50:
 PYEOF
 }
 
+# Stage the pre-bundled BApp assets/clones (shipped in the image at
+# /opt/portalgun/data/bapp-jars) into the BApp dir, so download_all_bapps finds
+# them already present and makes ZERO GitHub API calls — fully offline, no
+# rate-limit 403 cascade. Built at master-build time via lib/preload_bapps.py.
+stage_bundled_bapps() {
+    local src
+    for src in /opt/portalgun/data/bapp-jars \
+               "$(dirname "${BASH_SOURCE[0]}")/../data/bapp-jars"; do
+        if [ -d "$src" ] && [ -n "$(ls -A "$src" 2>/dev/null)" ]; then
+            mkdir -p "$BURP_BAPPS_DIR"
+            cp -rn "$src"/. "$BURP_BAPPS_DIR"/ 2>/dev/null || true
+            local n; n=$(ls -A "$src" 2>/dev/null | wc -l)
+            _burp_ok "Staged $n bundled BApps (offline)"
+            return 0
+        fi
+    done
+    _burp_log "No bundled BApps found — download_all_bapps will fetch online (rate-limit-prone)"
+}
+
 download_all_bapps() {
     [ -f "$BURP_BAPPS_DIR/catalog.json" ] || return 0
-    _burp_log "Downloading every BApp (may take 10+ minutes for first install)"
+    _burp_log "Resolving BApps (bundled ones skip the GitHub API)..."
     python3 - "$BURP_BAPPS_DIR" <<'PYEOF'
 """For each PortSwigger repo: download latest release JAR/zip if any, else
 clone the repo (shallow) so Jython/Python BApps still work."""
@@ -228,6 +247,19 @@ for entry in catalog:
     safe = entry["name"]
     dest_dir = os.path.join(bapps_dir, safe)
     os.makedirs(dest_dir, exist_ok=True)
+
+    # Already present (bundled offline, or a prior run) → skip with NO GitHub
+    # API call. This is what keeps a fresh install from 499 unauthenticated API
+    # calls (which 403-cascade past the 60/hr limit).
+    have_asset = any(
+        f.lower().endswith((".jar", ".zip", ".bapp", ".py")) and
+        os.path.isfile(os.path.join(dest_dir, f)) and
+        os.path.getsize(os.path.join(dest_dir, f)) > 500
+        for f in os.listdir(dest_dir)
+    )
+    if have_asset or os.path.isdir(os.path.join(dest_dir, "src", ".git")):
+        ok += 1
+        continue
 
     # 1) Try latest release with downloadable asset
     rel_url = f"https://api.github.com/repos/{full}/releases/latest"
@@ -321,7 +353,7 @@ install_burp_pro() {
     download_burp_pro || return 1
     install_burp_launcher
     apply_burp_license
-    fetch_bapp_catalog && download_all_bapps && stage_bapps_for_users
+    fetch_bapp_catalog && stage_bundled_bapps && download_all_bapps && stage_bapps_for_users
     register_burp
     _burp_ok "Burp Suite Pro install complete. Launch: burpsuite-pro"
 }

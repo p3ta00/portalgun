@@ -51,6 +51,9 @@ mkdir -p "$INSTALL_ROOT/data"
 if [ -d "$SRC_ROOT/data/sliver-armory" ]; then
     rsync -a "$SRC_ROOT/data/sliver-armory/" "$INSTALL_ROOT/data/sliver-armory/"
 fi
+if [ -d "$SRC_ROOT/data/bapp-jars" ]; then
+    rsync -a "$SRC_ROOT/data/bapp-jars/" "$INSTALL_ROOT/data/bapp-jars/"
+fi
 
 chmod +x "$INSTALL_ROOT/bin/portalgun" "$INSTALL_ROOT/bin/portalgun-firstboot.sh"
 chmod +x "$INSTALL_ROOT/lib/"*.py 2>/dev/null || true

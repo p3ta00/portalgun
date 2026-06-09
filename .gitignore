@@ -31,6 +31,8 @@ tests/logs/
 # Large pre-built asset bundles (regen via lib/preload_sliver_armory.py)
 # Keep the catalog index for offline UX but exclude the 124MB armory tarballs.
 data/sliver-armory/
+# Pre-bundled Burp BApp assets/clones (regen via lib/preload_bapps.py)
+data/bapp-jars/
 
 # But DO keep the small catalog index + BApp catalog (offline-required)
 !data/bapp-catalog.json
