@@ -318,13 +318,19 @@ apply_bundle() {
         print_status "  Installing $pip_total packages via requirements.txt..."
         _progress 82 "Phase 3: pip — resolving and installing $pip_total packages..."
 
-        # Phase A: bulk install — fast path, gets ~95% of packages in ~3min
+        # Phase A: bulk install — fast path, gets ~95% of packages in ~3min.
+        # --no-deps because the bundle is a COMPLETE pip freeze (every transitive
+        # dep is already an explicit pin), so pip needs no dependency resolution.
+        # This avoids pip's strict resolver throwing ResolutionImpossible on
+        # mutually-incompatible pins (e.g. tabulate / pyasn1) — which would abort
+        # the entire bulk install and force a slow 820-package per-package retry.
+        # Phase B below (with deps) is the safety net for any genuinely-missing dep.
         local pip_tmp pip_fail_log
         pip_tmp=$(mktemp /tmp/pg_pip_XXXXXX.tmp)
         chmod 600 "$pip_tmp"
         pip_fail_log="$PORTALGUN_LOG_DIR/pip_failures.log"
         : > "$pip_fail_log"
-        "$VENV_PIP" install --prefer-binary -r "$req_file" 2>&1 | tee "$pip_tmp" | \
+        "$VENV_PIP" install --prefer-binary --no-deps -r "$req_file" 2>&1 | tee "$pip_tmp" | \
             grep -E "^(ERROR|Successfully installed)" | tail -20 || true
 
         # Phase B: discover what didn't make it and retry per-package so one
