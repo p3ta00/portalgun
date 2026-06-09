@@ -11,6 +11,23 @@ _progress() {
     echo "PROGRESS:${pct}:${label}"
 }
 
+# Logging helpers (print_status/print_success/print_warning/print_error) live in
+# common.sh. When apply.sh is sourced standalone (install.sh runs
+# `bash -c "source apply.sh && apply_bundle"`) those aren't defined yet, so pull
+# them in; fall back to plain echo if common.sh isn't found.
+if ! declare -F print_status >/dev/null 2>&1; then
+    _apply_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "$_apply_dir/common.sh" ]; then
+        # shellcheck source=/dev/null
+        source "$_apply_dir/common.sh"
+    else
+        print_status()  { echo "[*] $*"; }
+        print_success() { echo "[+] $*"; }
+        print_warning() { echo "[!] $*"; }
+        print_error()   { echo "[-] $*" >&2; }
+    fi
+fi
+
 
 
 # Hoisted out of apply_bundle — bash nested functions pollute global scope
