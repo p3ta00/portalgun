@@ -552,12 +552,44 @@ apply_bundle() {
         fi
     fi
     if [ "${PORTALGUN_SKIP_SLIVER:-0}" != "1" ]; then
-        _progress 98 "Phase 6b: Sliver C2 + armory..."
+        _progress 96 "Phase 6b: Sliver C2 + armory..."
         print_status "Phase 6b: Sliver C2"
         if source "$PORTALGUN_LIB/install_sliver.sh" 2>/dev/null && install_sliver; then
             print_success "Sliver installed"
         else
             print_warning "Sliver install skipped/failed (non-fatal)"
+        fi
+    fi
+
+    # ── Phase 7: Offline future-proofing (wheelhouse + apt mirror + sliver armory) ──
+    # These make a clone work 100% offline: pip wheelhouse for future tools' deps,
+    # apt mirror for future apt installs, and a local Sliver armory so `armory`
+    # browse/install work with no internet. Each is skippable + disk-guarded.
+    if [ "${PORTALGUN_SKIP_WHEELHOUSE:-0}" != "1" ]; then
+        _progress 97 "Phase 7a: Offline pip wheelhouse..."
+        print_status "Phase 7a: Offline pip wheelhouse (future-proof offline installs)"
+        if source "$PORTALGUN_LIB/build_wheelhouse.sh" 2>/dev/null && build_wheelhouse; then
+            print_success "pip wheelhouse ready (offline)"
+        else
+            print_warning "Wheelhouse build skipped/partial (non-fatal)"
+        fi
+    fi
+    if [ "${PORTALGUN_SKIP_APT_MIRROR:-0}" != "1" ]; then
+        _progress 98 "Phase 7b: Offline apt mirror..."
+        print_status "Phase 7b: Offline apt mirror"
+        if source "$PORTALGUN_LIB/build_apt_mirror.sh" 2>/dev/null && build_apt_mirror; then
+            print_success "apt mirror ready (offline)"
+        else
+            print_warning "apt mirror build skipped/partial (non-fatal)"
+        fi
+    fi
+    if [ "${PORTALGUN_SKIP_SLIVER_ARMORY:-0}" != "1" ]; then
+        _progress 98 "Phase 7c: Offline Sliver armory..."
+        print_status "Phase 7c: Local offline Sliver armory ('armory' browse/install offline)"
+        if source "$PORTALGUN_LIB/build_sliver_armory.sh" 2>/dev/null && build_sliver_armory; then
+            print_success "Local Sliver armory ready (offline)"
+        else
+            print_warning "Sliver armory build skipped/failed (non-fatal)"
         fi
     fi
 
