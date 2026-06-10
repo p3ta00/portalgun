@@ -257,7 +257,12 @@ for entry in catalog:
         os.path.getsize(os.path.join(dest_dir, f)) > 500
         for f in os.listdir(dest_dir)
     )
-    if have_asset or os.path.isdir(os.path.join(dest_dir, "src", ".git")):
+    # A bundled source BApp is present as a non-empty src/ dir (the preloader
+    # strips .git, so don't require src/.git — that caused redundant re-clones
+    # to fail with "destination already exists").
+    _src = os.path.join(dest_dir, "src")
+    src_present = os.path.isdir(_src) and bool(os.listdir(_src))
+    if have_asset or src_present:
         ok += 1
         continue
 
@@ -295,9 +300,11 @@ for entry in catalog:
         ok += 1
         continue
 
-    # 2) Fall back to shallow git clone for Jython/Python BApps (no release)
+    # 2) Fall back to shallow git clone for Jython/Python BApps (no release).
     clone_dir = os.path.join(dest_dir, "src")
-    if os.path.isdir(os.path.join(clone_dir, ".git")):
+    # Already present (bundled, .git stripped, or a prior clone) → don't re-clone
+    # into a non-empty dir (git exits 128 "destination already exists").
+    if os.path.isdir(clone_dir) and os.listdir(clone_dir):
         cloned += 1
         continue
     try:
