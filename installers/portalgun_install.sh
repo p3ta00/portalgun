@@ -41,6 +41,10 @@ rsync -a --delete "$SRC_ROOT/bin/"        "$INSTALL_ROOT/bin/"
 rsync -a --delete "$SRC_ROOT/lib/"        "$INSTALL_ROOT/lib/"
 rsync -a --delete "$SRC_ROOT/completion/" "$INSTALL_ROOT/completion/"
 rsync -a --delete "$SRC_ROOT/web/"        "$INSTALL_ROOT/web/"
+# Curated GitHub-tools installer (downloads precompiled binaries + compiles
+# C#/Go tools). apply_bundle's github phase invokes it so the web "install all"
+# produces real binaries (e.g. GodPotato-NET4.exe), not bare source.
+[ -d "$SRC_ROOT/installers" ] && rsync -a "$SRC_ROOT/installers/" "$INSTALL_ROOT/installers/"
 # Ship configs/ alongside the CLI so apply_bundle's dotfiles phase can find them
 # at $INSTALL_ROOT/configs even when invoked via `sudo -E bash -c` (where
 # PORTALGUN_REPO_DIR may be unset and "$PORTALGUN_REPO_DIR/configs" -> "/configs").

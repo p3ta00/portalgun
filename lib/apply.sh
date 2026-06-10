@@ -239,10 +239,31 @@ apply_bundle() {
 
     # ── GitHub (35–80%) ──────────────────────────────────────────────
     if [ "$github_count" -gt 0 ] && [ "$run_github" -eq 1 ]; then
-        _progress 36 "Phase 2: Cloning GitHub tools..."
+        _progress 36 "Phase 2: GitHub tools..."
         print_status "Phase 2: github tools ($github_count)"
         local gh_ok=0 gh_skip=0 gh_fail=0 gh_done=0
 
+        # 2a) Curated installer FIRST. It installs mono-complete + dotnet-sdk and,
+        # per its tool table, DOWNLOADS precompiled release binaries (e.g.
+        # GodPotato-NET4.exe) for download tools and COMPILES the needs_compile=true
+        # C#/Go tools — producing real binaries instead of leaving bare source.
+        # The bundle loop (2b) below then only handles EXTRA tools not in the
+        # curated catalog (web-UI-added ones), skipping anything already on disk.
+        local _ght=""
+        for _c in "$PORTALGUN_ROOT/installers/install_github_tools.sh" \
+                  "$PORTALGUN_REPO_DIR/installers/install_github_tools.sh" \
+                  "/home/kali/portalgun/installers/install_github_tools.sh"; do
+            [ -f "$_c" ] && { _ght="$_c"; break; }
+        done
+        if [ "${PORTALGUN_SKIP_CURATED_GH:-0}" != "1" ] && [ -n "$_ght" ]; then
+            _progress 37 "Phase 2a: curated tools (precompiled + compiled binaries)..."
+            print_status "Phase 2a: curated installer (download precompiled + compile): $_ght"
+            bash "$_ght" 2>&1 | grep -E "^\[.\]|Installing|Build|Download|compiled|installed" || true
+        else
+            print_warning "Curated install_github_tools.sh not found — bundle clone only (binaries may be missing)"
+        fi
+
+        _progress 50 "Phase 2b: remaining bundle tools..."
         while IFS= read -r entry; do
             local url target name
             url=$(echo "$entry" | jq -r '.url')
@@ -250,9 +271,9 @@ apply_bundle() {
             name=$(basename "$url" .git | tr '[:upper:]' '[:lower:]')
             gh_done=$(( gh_done + 1 ))
 
-            # github occupies 36–79%
-            local pct=$(( 36 + ( gh_done * 43 / github_count ) ))
-            _progress "$pct" "Phase 2: GitHub [$gh_done/$github_count] $name"
+            # bundle-extras occupy 50–79%
+            local pct=$(( 50 + ( gh_done * 29 / github_count ) ))
+            _progress "$pct" "Phase 2b: GitHub [$gh_done/$github_count] $name"
 
             # Idempotency: registry knows about it OR the tool_dir exists on
             # disk with content (handles legacy install_github_tools.sh which
