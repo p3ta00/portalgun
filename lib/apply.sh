@@ -263,6 +263,16 @@ apply_bundle() {
             print_warning "Curated install_github_tools.sh not found — bundle clone only (binaries may be missing)"
         fi
 
+        # Repos the curated installer already handles (owner/name, lowercased).
+        # The bundle loop skips these so we don't re-clone a SOURCE copy next to
+        # the curated BINARY (the /opt/tools duplication that made tools look
+        # "uncompiled"). Built from the curated tool table's repo column.
+        local _curated_repos=""
+        if [ -n "$_ght" ]; then
+            _curated_repos=$(grep -oE '"[A-Za-z0-9_.-]+\|[A-Za-z0-9_./-]+\|' "$_ght" \
+                             | awk -F'|' '{print tolower($2)}' | sort -u)
+        fi
+
         _progress 50 "Phase 2b: remaining bundle tools..."
         while IFS= read -r entry; do
             local url target name
@@ -274,6 +284,16 @@ apply_bundle() {
             # bundle-extras occupy 50–79%
             local pct=$(( 50 + ( gh_done * 29 / github_count ) ))
             _progress "$pct" "Phase 2b: GitHub [$gh_done/$github_count] $name"
+
+            # Skip if the curated installer already owns this repo (avoid a
+            # duplicate source clone next to the curated binary).
+            local repo_lc
+            repo_lc=$(echo "$url" | sed -E 's#https?://github.com/##I; s#\.git$##; s#/$##' | tr '[:upper:]' '[:lower:]')
+            if [ -n "$_curated_repos" ] && echo "$_curated_repos" | grep -qxF "$repo_lc"; then
+                printf "  ${CYAN}[curated]${NC} %s\n" "$name"
+                (( gh_skip++ )) || true
+                continue
+            fi
 
             # Idempotency: registry knows about it OR the tool_dir exists on
             # disk with content (handles legacy install_github_tools.sh which

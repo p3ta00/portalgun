@@ -308,7 +308,7 @@ TOOLS=(
     # ═══════════════════════════════════════════════════════════════
     "firmwalker|craigz28/firmwalker|firmware|embedded|CLONE|false|"
     "firmware_mod_kit|rampageX/firmware-mod-kit|firmware|embedded|CLONE|false|"
-    "sasquatch|devttys0/sasquatch|firmware|embedded|CLONE|true|sed -i 's/-Werror//g' patches/patch0.txt Makefile 2>/dev/null; CFLAGS='-Wno-incompatible-pointer-types -Wno-error -fcommon' ./build.sh"
+    "sasquatch|devttys0/sasquatch|firmware|embedded|CLONE|true|command -v sasquatch >/dev/null 2>&1 && echo 'sasquatch already provided by Kali apt package (/usr/bin/sasquatch) — skipping source build' || { apt-get install -y -q sasquatch >/dev/null 2>&1; command -v sasquatch >/dev/null 2>&1 && echo 'installed sasquatch via apt' || { sed -i 's/-Werror//g' patches/patch0.txt Makefile 2>/dev/null; CFLAGS='-Wno-incompatible-pointer-types -Wno-error -fcommon' ./build.sh; }; }"
     "firmadyne|firmadyne/firmadyne|firmware|embedded|CLONE|false|"
     "firmware_analysis_toolkit|attify/firmware-analysis-toolkit|firmware|embedded|CLONE|false|"
     "routersploit|threat9/routersploit|iot|embedded|CLONE|false|"

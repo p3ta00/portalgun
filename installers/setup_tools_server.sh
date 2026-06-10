@@ -57,6 +57,9 @@ print_status "Copying server files..."
 # Main HTML page
 cp "$SCRIPT_DIR/../data/tools_readme.html" "$DOC_DIR/index.html"
 
+# Logo (the title bar references <img src="portalgun.png">)
+[ -f "$SCRIPT_DIR/../data/portalgun.png" ] && cp "$SCRIPT_DIR/../data/portalgun.png" "$DOC_DIR/portalgun.png"
+
 # Flask server
 cp "$SCRIPT_DIR/../data/tools_server.py" "$DOC_DIR/tools_server.py"
 
