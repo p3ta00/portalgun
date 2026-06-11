@@ -523,9 +523,18 @@ apply_bundle() {
         fi
     done
 
-    # Apply to both root and the sudo user (kali or whoever invoked sudo)
+    # Apply to root + EVERY real human user (every /home/*), not just $SUDO_USER.
+    # When "install all" is driven from the web UI it runs as root via `sudo -n`,
+    # so SUDO_USER is root/unset and kali would otherwise be skipped — leaving the
+    # p3ta shell unapplied. Enumerating /home/* guarantees kali (and any operator
+    # account) always gets the shell during install.
     local FIRST_USER="${SUDO_USER:-kali}"
-    local USERS_TO_CONFIGURE=("root" "$FIRST_USER")
+    local USERS_TO_CONFIGURE=("root")
+    local _huser
+    for _huser in /home/*; do
+        [ -d "$_huser" ] || continue
+        getent passwd "$(basename "$_huser")" >/dev/null 2>&1 && USERS_TO_CONFIGURE+=("$(basename "$_huser")")
+    done
 
     # Install Rust terminal tools via direct binary download (most reliable)
     # cargo-binstall is unreliable in this environment, so download from GitHub releases directly

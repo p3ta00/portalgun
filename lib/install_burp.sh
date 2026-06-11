@@ -73,6 +73,24 @@ exec java -Djava.awt.headless=false -jar "$BURP_JAR" "\$@"
 EOF
     chmod 755 /usr/local/bin/burpsuite-pro
     _burp_ok "Launcher → /usr/local/bin/burpsuite-pro"
+
+    # Redirect Kali's stock Burp (package 'burpsuite' = unlicensed community/temp)
+    # to our licensed Pro, so the Applications-menu icon and the `burpsuite`
+    # command both open the activated Pro instead of prompting for a license.
+    if [ -f /usr/bin/burpsuite ] && ! grep -q burpsuite-pro /usr/bin/burpsuite 2>/dev/null; then
+        [ -f /usr/bin/burpsuite-kali-stock ] || cp /usr/bin/burpsuite /usr/bin/burpsuite-kali-stock 2>/dev/null
+        cat > /usr/bin/burpsuite <<'SH'
+#!/usr/bin/env bash
+# portalgun: redirect to the licensed Burp Suite Pro (stock saved as burpsuite-kali-stock)
+exec /usr/local/bin/burpsuite-pro "$@"
+SH
+        chmod +x /usr/bin/burpsuite
+    fi
+    # Point the desktop menu entry at Pro too.
+    for d in /usr/share/applications/kali-burpsuite.desktop /usr/share/applications/burpsuite.desktop; do
+        [ -f "$d" ] && sed -i 's/^Exec=.*/Exec=burpsuite-pro/' "$d" 2>/dev/null || true
+    done
+    _burp_ok "Menu + 'burpsuite' redirected to licensed Pro"
 }
 
 # Symlink every user's Burp config dirs to the shared persistent store, the way
