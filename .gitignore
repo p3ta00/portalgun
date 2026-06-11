@@ -47,3 +47,8 @@ prefs.xml
 *.userPrefs
 # Bundled armory-server binary (re-fetch from sliverarmory/private-armory release)
 data/sliver-armory-bin/
+
+# Burp Pro JAR is operator-provided (~660MB, version-specific) — never commit it.
+BurpSuitePro.jar
+**/burpsuite/BurpSuitePro.jar
+**/burpsuite/bapps/
